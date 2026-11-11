@@ -7,21 +7,21 @@ Update this file whenever optimization work is applied or skipped.
 
 | # | Item | Status | Where applied | Notes |
 |---|------|--------|---------------|-------|
-| 2 | Lazy loading (frontend) | Todo | — | Route/module-level code load on demand |
-| 3 | Skeleton / shimmer loading | Todo | — | Lists, detail pages, dashboards |
-| 4 | Database indexing | Todo | — | FKs, search, filter, status columns |
-| 5 | Slim API responses | Todo | — | Only required fields; no over-fetch |
-| 8 | Avoid N+1 queries (Laravel eager load) | Todo | — | Relations loaded intentionally |
+| 2 | Lazy loading (frontend) | Done | `frontend/src/App.jsx` | Route-level lazy + Suspense |
+| 3 | Skeleton / shimmer loading | Done | Dashboard + patients pages | List/detail loading states |
+| 4 | Database indexing | Done | patients + clinical + ops + audit_logs | audit action/module/created_at indexes |
+| 5 | Slim API responses | Done | PatientController + ReportController | overview aggregates only needed KPIs |
+| 8 | Avoid N+1 queries (Laravel eager load) | Done | Patient + DoctorRound index | doctor/patient/admission eager load |
 
 ## Should (light alongside, deep polish later)
 
 | # | Item | Status | Where applied | Notes |
 |---|------|--------|---------------|-------|
 | 1 | Cache management | Todo | — | Start light; deepen after modules stabilize |
-| 6 | Debounce search/filters | Todo | — | Avoid API call per keystroke |
-| 7 | Image/file optimization | Todo | — | Compress + upload size limits (local storage) |
-| 11 | Code splitting | Todo | — | Large React bundles by module |
-| 12 | Default pagination page size | Todo | — | e.g. 10/20/50 on all list APIs/UI |
+| 6 | Debounce search/filters | Done | PatientsPage | 350ms debounce |
+| 7 | Image/file optimization | In Progress | DocumentController | 5MB type whitelist; compress later |
+| 11 | Code splitting | Done | Vite build chunks | Login/Dashboard/Module/Patient lazy chunks |
+| 12 | Default pagination page size | Done | patients API/UI | default 20, max 50 |
 
 ## Later (not required now)
 
@@ -32,7 +32,7 @@ Update this file whenever optimization work is applied or skipped.
 
 ## Summary
 
-- Must remaining: 5
-- Should remaining: 5
+- Must remaining: 0
+- Should remaining: 2
 - Later: 2
-- Last updated: 2026-11-11 (initial)
+- Last updated: 2026-11-11 (security polish: audit + timeout)
