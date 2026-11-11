@@ -1,0 +1,137 @@
+---
+description: Jadeed Rifah Rehab ERP — efficiency, production UI, security, optimization, git discipline
+alwaysApply: true
+---
+
+# Cognitive & token efficiency
+
+- Prefer minimal diffs. Do not rewrite whole files for small edits; skip unchanged sections with `// ... existing code ...` (or `# ... existing code ...` in PHP/Python).
+- Be concise. Explain code only when asked. No filler intros, outros, or restating the task.
+- Reply with only the changed snippet/diff unless a short clarification is required to proceed.
+
+# Code safety & continuity
+
+- Never delete, rename, or change existing functions/variables unless the user explicitly asks.
+- Do not break current architecture, APIs, or state management.
+- Reuse existing helpers/utilities before adding new ones.
+- Do not add convenience files, scripts, or docs the user did not ask for.
+- Do not touch `Credentials.txt` or `WhatsApp Image 2026-11-10 at 2.15.38 PM.jpeg` unless the user explicitly allows it. Ask first if their info is needed.
+
+# Jadeed Rifah Rehab ERP stack (do not rewrite)
+
+- Frontend: React (responsive UI + PWA installable app)
+- Backend: Laravel (REST API)
+- Database: MySQL
+- File uploads: store on the same server (local storage), not Cloudinary by default
+- Hosting target: cPanel-style VPS/shared (domain/subdomain + SSL)
+- Follow SRS modules/roles/workflows; do not invent scope (no live CCTV control, no in-app camera scanning unless asked)
+- Build phase-by-phase; do not jump ahead unless asked
+
+# Language
+
+- English only for all user-facing UI text.
+- Do not add Roman Urdu, language toggle, or i18n unless the user explicitly asks later.
+- Keep terminology consistent across modules.
+
+# UI clarity (mandatory)
+
+- Keep UI clean and uncluttered. No messy layouts.
+- Do NOT add useless helper text, hint lines, tips, placeholders-as-instructions, or AI-style “helpful” microcopy that confuses users.
+- Labels should be short and clear. Only show helper text when it is truly required for a critical action.
+- Prefer one clear action per area; avoid extra badges, chips, and decorative clutter.
+
+# Feedback UI — toast & modal (production-grade)
+
+- Do NOT use browser `alert()`, `confirm()`, or `prompt()` as the default UX. They look unprofessional / testing-phase.
+- Use a shared **toast/toaster** for success, error, info, and light warnings.
+- Use a shared **React modal/dialog** for confirmations, destructive actions, and forms that need focus.
+- `alert`/`confirm`/`prompt` only where truly necessary (rare); never sprinkle them across the app.
+- Where a toast or modal fits, use toast/modal — not native browser dialogs.
+- Keep one consistent toast + modal system app-wide (do not mix random libraries per screen).
+
+# Responsive & adaptive UI (mandatory on EVERY UI task)
+
+- Never ship UI that only works on desktop. Every screen/component must work on mobile, tablet, and laptop/desktop without the user re-prompting.
+- Use responsive layout by default (flex/grid + breakpoints). No fixed widths that break on small screens.
+- Use a consistent spacing scale for margin/padding. Do not guess random values.
+- Align buttons, inputs, labels, and actions properly; no uneven gaps or misaligned controls.
+- Buttons must have consistent height, padding, and alignment across the app.
+- Text, tables, forms, sidebars, and modals must adapt (wrap/stack/scroll sensibly) on narrow screens.
+- Before finishing any UI work, self-check: alignment, overflow, wrapping, tap targets, and spacing on small and large screens.
+- Prefer shared UI components over one-off spacing hacks.
+
+# Performance habits (alongside development)
+
+Must apply while building features (not only at the end):
+- Frontend lazy loading for routes/modules
+- Skeleton/shimmer loading for async UI
+- Database indexes on FKs/search/filter columns
+- Slim API responses (only required fields)
+- Avoid N+1 queries (use Laravel eager loading)
+
+Should apply at a light level while building; deepen later:
+- Light caching where clearly useful
+- Debounced search/filters
+- Image/file upload limits + basic optimization
+- React code splitting by module
+- Default pagination page sizes (e.g. 10/20/50)
+
+# Security habits (alongside development)
+
+Must apply while building features (code/app security):
+- Auth on every protected API
+- RBAC/permission checks per action
+- Backend input validation
+- ORM/prepared queries only (no SQL injection)
+- XSS prevention
+- Password hashing
+- Secrets only in `.env`
+- Mass assignment protection
+- Secure uploads (type/size whitelist)
+- HTTPS + secure cookies/tokens in production
+- Session timeout + login rate limit
+- Careful client storage of tokens/sensitive data
+- Safe production error responses
+- No hard-delete of sensitive records (archive/void + reason)
+- Audit log for important actions
+
+Should apply as features land; Later items only when asked or after core auth is stable:
+- CSRF/API token hardening, clinical vs finance isolation, export permission/log, dependency checks
+- Later: MFA, selected field encryption, suspicious-login alerts
+
+# Production-from-day-one (keep light, avoid rework)
+
+- Build every screen as production UI from the start (shared layout, spacing, buttons, toast/modal). Do not ship “temporary ugly” UI that needs a later redesign.
+- Prefer shared reusable components over one-off copies.
+- Keep project structure clear: `frontend/` (React) and `backend/` (Laravel) unless user changes this.
+- Use one consistent API success/error response shape across backend endpoints.
+- Lists/pages should handle loading (skeleton), empty, and error states in a consistent simple way — no extra essays of helper text.
+- Format money as PKR and dates/times consistently (Pakistan-friendly) via shared helpers when those fields appear.
+- Print/PDF/Excel: only when building those features; use clean A4/receipt-ready layouts then — do not overbuild early.
+- Do not add heavy process (big test suites, extra docs, changelogs) unless the user asks. Keep development smooth.
+
+# GitHub / git
+
+- Do not create commits unless the user explicitly asks.
+- Do not push to remote unless the user explicitly asks and has provided remote access/link.
+- Never commit secrets (`.env`, `Credentials.txt`, private keys).
+- When the user provides the GitHub remote link/access and says to push, then push.
+
+# Optimization tracker (auto-update)
+
+- Source of truth: `OPTIMIZATION.md`
+- Whenever an optimization item is implemented, partially applied, or deferred, update `OPTIMIZATION.md` status, “Where applied”, notes, and Summary counts.
+- When the user asks what is done/remaining for optimization, read `OPTIMIZATION.md` and answer from it.
+- Do not mark items Done unless actually implemented in code.
+
+# Security tracker (auto-update)
+
+- Source of truth: `SECURITY.md`
+- Whenever a security item is implemented, partially applied, or deferred, update `SECURITY.md` status, “Where applied”, notes, and Summary counts.
+- When the user asks what is done/remaining for security, read `SECURITY.md` and answer from it.
+- Do not mark items Done unless actually implemented in code.
+
+# Output format
+
+- Use targeted code blocks or diffs, not full-file dumps.
+- Keep root clean: avoid leftover launchers, legacy copies, or unused scaffolding.

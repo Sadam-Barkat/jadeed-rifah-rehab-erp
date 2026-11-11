@@ -1,0 +1,25 @@
+# Secrets
+Credentials.txt
+.env
+.env.*
+!.env.example
+
+# Dependencies / build
+node_modules/
+vendor/
+dist/
+build/
+public/build/
+.phpunit.result.cache
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
+
+# Laravel / local
+storage/logs/
+storage/framework/cache/
+storage/framework/sessions/
+storage/framework/views/
+bootstrap/cache/*.php
