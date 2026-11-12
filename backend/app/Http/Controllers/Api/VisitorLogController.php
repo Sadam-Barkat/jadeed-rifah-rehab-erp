@@ -16,7 +16,7 @@ class VisitorLogController extends Controller
         $perPage = min(max((int) $request->integer('per_page', 20), 1), 50);
 
         $query = VisitorLog::query()
-            ->with(['patient', 'admission'])
+            ->with(['patient', 'admission', 'creator'])
             ->latest('check_in_at');
 
         if ($status = $request->get('status')) {
@@ -54,8 +54,9 @@ class VisitorLogController extends Controller
         $data = $request->validate([
             'admission_id' => ['required', 'exists:admissions,id'],
             'visitor_name' => ['required', 'string', 'max:150'],
-            'relation' => ['nullable', 'string', 'max:100'],
-            'phone' => ['nullable', 'string', 'max:30'],
+            'party_size' => ['nullable', 'integer', 'min:1', 'max:20'],
+            'relation' => ['nullable', Rule::in(['relative', 'friend', 'other'])],
+            'phone' => ['required', 'string', 'max:30'],
             'cnic' => ['nullable', 'string', 'max:20'],
             'purpose' => ['nullable', 'string', 'max:255'],
             'check_in_at' => ['nullable', 'date'],
@@ -73,6 +74,7 @@ class VisitorLogController extends Controller
             'admission_id' => $admission->id,
             'patient_id' => $admission->patient_id,
             'visitor_name' => $data['visitor_name'],
+            'party_size' => $data['party_size'] ?? 1,
             'relation' => $data['relation'] ?? null,
             'phone' => $data['phone'] ?? null,
             'cnic' => $data['cnic'] ?? null,
@@ -82,7 +84,7 @@ class VisitorLogController extends Controller
             'notes' => $data['notes'] ?? null,
             'status' => 'checked_in',
             'created_by' => $request->user()->id,
-        ])->load(['patient', 'admission']);
+        ])->load(['patient', 'admission', 'creator']);
 
         return response()->json([
             'message' => 'Visitor checked in',
@@ -136,6 +138,7 @@ class VisitorLogController extends Controller
             'id' => $visit->id,
             'visit_code' => $visit->visit_code,
             'visitor_name' => $visit->visitor_name,
+            'party_size' => (int) ($visit->party_size ?? 1),
             'relation' => $visit->relation,
             'phone' => $visit->phone,
             'cnic' => $visit->cnic,
@@ -145,6 +148,7 @@ class VisitorLogController extends Controller
             'items_brought' => $visit->items_brought,
             'notes' => $visit->notes,
             'status' => $visit->status,
+            'logged_by' => $visit->creator?->name,
             'patient' => [
                 'id' => $visit->patient?->id,
                 'patient_code' => $visit->patient?->patient_code,

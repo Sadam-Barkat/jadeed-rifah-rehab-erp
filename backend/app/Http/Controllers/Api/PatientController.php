@@ -130,6 +130,25 @@ class PatientController extends Controller
         ]);
     }
 
+    public function destroy(Request $request, Patient $patient): JsonResponse
+    {
+        $code = $patient->patient_code;
+        $id = $patient->id;
+
+        if ($patient->admissions()->where('status', 'active')->exists()) {
+            return response()->json(['message' => 'Cannot delete a patient with an active admission. Discharge first.'], 422);
+        }
+
+        $patient->update([
+            'status' => 'archived',
+            'updated_by' => $request->user()->id,
+        ]);
+
+        Audit::log('patient.archive', 'patients', 'patient', $id, "Archived {$code}");
+
+        return response()->json(['message' => 'Patient archived']);
+    }
+
     public function checkDuplicate(Request $request): JsonResponse
     {
         $data = $request->validate([

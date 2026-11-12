@@ -21,6 +21,13 @@ const emptyPayment = {
   notes: '',
 }
 
+const PAY_METHODS = [
+  { value: 'cash', label: 'Cash' },
+  { value: 'card', label: 'Card' },
+  { value: 'online', label: 'Online' },
+  { value: 'bank', label: 'Bank' },
+]
+
 export default function BillingPage() {
   const [loading, setLoading] = useState(true)
   const [savingInvoice, setSavingInvoice] = useState(false)
@@ -46,8 +53,8 @@ export default function BillingPage() {
       const [pkgRes, admRes, invRes, payRes] = await Promise.all([
         api('/fee-packages?status=active'),
         api('/admissions?per_page=50'),
-        api('/invoices?per_page=20'),
-        api('/payments?per_page=20'),
+        api('/invoices?due_only=1&per_page=50'),
+        api('/payments?per_page=50'),
       ])
       setPackages(pkgRes.data || [])
       setAdmissions(admRes.data || [])
@@ -268,11 +275,9 @@ export default function BillingPage() {
                 value={paymentForm.method}
                 onChange={(e) => setPay('method', e.target.value)}
               >
-                <option value="cash">Cash</option>
-                <option value="bank">Bank</option>
-                <option value="jazzcash">JazzCash</option>
-                <option value="easypaisa">Easypaisa</option>
-                <option value="other">Other</option>
+                {PAY_METHODS.map((m) => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
               </select>
             </div>
             <div className="ui-field">

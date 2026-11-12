@@ -60,6 +60,14 @@ alwaysApply: true
 - Before finishing any UI work, self-check: alignment, overflow, wrapping, tap targets, and spacing on small and large screens.
 - Prefer shared UI components over one-off spacing hacks.
 
+# Growing lists — scroll + search (mandatory)
+
+- If a list/table can grow over time (patients, admissions, staff, visitors, medicines, inventory, payments, fees due), do NOT dump the full list as an endlessly long page.
+- Put growing data in a **fixed-height panel with inner scroll** so header/actions/forms stay visible and the user does not scroll the whole app forever.
+- Add a simple **search** (name/code/phone as relevant) on those expandable lists; debounce search input.
+- Apply this on every new or touched list UI without waiting for the user to re-ask.
+- Track status in `OPTIMIZATION.md` items 13 (inner scroll) and 14 (list search).
+
 # Performance habits (alongside development)
 
 Must apply while building features (not only at the end):
@@ -68,10 +76,12 @@ Must apply while building features (not only at the end):
 - Database indexes on FKs/search/filter columns
 - Slim API responses (only required fields)
 - Avoid N+1 queries (use Laravel eager loading)
+- Inner scroll panels for growing lists/tables
+- Search on expandable lists (debounced)
 
 Should apply at a light level while building; deepen later:
 - Light caching where clearly useful
-- Debounced search/filters
+- Debounced search/filters (also required on new expandable lists — see Must)
 - Image/file upload limits + basic optimization
 - React code splitting by module
 - Default pagination page sizes (e.g. 10/20/50)

@@ -113,6 +113,20 @@ export function AuthProvider({ children }) {
         touchActivity()
         return data.user
       },
+      async refreshUser(nextUser) {
+        if (nextUser) {
+          localStorage.setItem(USER_KEY, JSON.stringify(nextUser))
+          setUser(nextUser)
+          return nextUser
+        }
+        const data = await api('/me')
+        if (data.session_timeout_minutes) {
+          setSessionTimeoutMinutes(data.session_timeout_minutes)
+        }
+        localStorage.setItem(USER_KEY, JSON.stringify(data.user))
+        setUser(data.user)
+        return data.user
+      },
       async logout() {
         try {
           if (getToken()) await api('/logout', { method: 'POST' })

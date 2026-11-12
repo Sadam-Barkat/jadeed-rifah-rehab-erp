@@ -51,7 +51,6 @@ class DoctorController extends Controller
             'phone' => ['nullable', 'string', 'max:32'],
             'email' => ['nullable', 'email', 'max:150'],
             'status' => ['nullable', Rule::in(['active', 'inactive'])],
-            'employee_id' => ['nullable', 'exists:employees,id'],
             'user_id' => ['nullable', 'exists:users,id'],
             'notes' => ['nullable', 'string'],
         ]);
@@ -64,7 +63,6 @@ class DoctorController extends Controller
             'phone' => $data['phone'] ?? null,
             'email' => $data['email'] ?? null,
             'status' => $data['status'] ?? 'active',
-            'employee_id' => $data['employee_id'] ?? null,
             'user_id' => $data['user_id'] ?? null,
             'notes' => $data['notes'] ?? null,
             'created_by' => $request->user()->id,
@@ -92,7 +90,6 @@ class DoctorController extends Controller
             'phone' => ['nullable', 'string', 'max:32'],
             'email' => ['nullable', 'email', 'max:150'],
             'status' => ['nullable', Rule::in(['active', 'inactive'])],
-            'employee_id' => ['nullable', 'exists:employees,id'],
             'user_id' => ['nullable', 'exists:users,id'],
             'notes' => ['nullable', 'string'],
         ]);
@@ -117,7 +114,6 @@ class DoctorController extends Controller
             'phone' => $doctor->phone,
             'email' => $doctor->email,
             'status' => $doctor->status,
-            'employee_id' => $doctor->employee_id,
             'user_id' => $doctor->user_id,
             'notes' => $doctor->notes,
             'created_by' => $doctor->creator?->name,

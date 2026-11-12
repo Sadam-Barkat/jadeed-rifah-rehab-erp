@@ -16,12 +16,12 @@ Update this file whenever a security item is implemented, partially applied, or 
 | 6 | Password hashing | Done | User model cast + seeder | bcrypt hashed |
 | 7 | Secrets only in `.env` | Done | backend `.env` | DB/app secrets not in code |
 | 8 | Mass assignment protection | Done | User/Role fillable | Explicit fields only |
-| 9 | Upload security (type/size whitelist) | Done | DocumentController | pdf/jpg/png/doc/xls max 5MB; archive not hard-delete |
+| 9 | Upload security (type/size whitelist) | In Progress | Inventory bill upload (`SecureUpload`) | jpg/jpeg/png/webp/pdf, max 5MB; re-apply same pattern for other uploads |
 | 10 | HTTPS + secure cookies/tokens | Later | — | Production deploy |
 | 11 | Session timeout + login rate limit | Done | AuthContext + facility settings | Idle timeout enforced client-side; login throttle:10,1 |
 | 12 | Careful token/sensitive storage on client | Done | localStorage token only | No clinical notes stored |
 | 13 | Safe production errors | Done | `bootstrap/app.php` | API hides stack when `APP_DEBUG=false` |
-| 14 | No hard-delete of sensitive records | In Progress | documents + account void | Archive docs; void ledger (no hard delete) |
+| 14 | No hard-delete of sensitive records | In Progress | patients archive + account void | Patients soft-archive when admitted; void ledger (no hard delete) |
 | 15 | Audit log for important actions | Done | `Audit` + Settings page | login/logout, patient, admission, payment, void, archive, user, discharge, settings |
 
 ## Should
@@ -43,7 +43,7 @@ Update this file whenever a security item is implemented, partially applied, or 
 
 ## Summary
 
-- Must remaining: 0 Todo (2 In Progress: RBAC polish, hard-delete coverage)
+- Must remaining: 0 Todo (3 In Progress: RBAC polish, hard-delete, upload whitelist)
 - Should remaining: 2
-- Later: 3
-- Last updated: 2026-11-11 (timeout + audit + safe errors)
+- Later: 4
+- Last updated: 2026-11-12 (inventory bill upload + pharmacy/inventory split)

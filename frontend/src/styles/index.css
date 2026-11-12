@@ -21,6 +21,7 @@
   --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
   --shadow-md: 0 8px 24px rgba(16, 24, 40, 0.08);
   --sidebar-width: 280px;
+  --sidebar-collapsed-width: 76px;
   --topbar-height: 64px;
   --space-1: 4px;
   --space-2: 8px;
@@ -31,6 +32,26 @@
   --space-8: 32px;
   --font-sans: "DM Sans", system-ui, sans-serif;
   --font-display: "Source Serif 4", Georgia, serif;
+}
+
+html[data-theme='dark'] {
+  --color-primary: #3d9a5a;
+  --color-primary-dark: #2f7d48;
+  --color-primary-soft: #1a2f22;
+  --color-secondary: #8eb0d6;
+  --color-secondary-dark: #d7e3f4;
+  --color-accent: #e67a1f;
+  --color-accent-soft: #3a2a1a;
+  --color-bg: #0f1724;
+  --color-surface: #172033;
+  --color-border: #2b3a52;
+  --color-text: #e8eef8;
+  --color-muted: #9aabbf;
+  --color-danger: #f04438;
+  --color-success: #3d9a5a;
+  --color-warning: #f79009;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
 *,
@@ -88,6 +109,13 @@ p {
   background:
     radial-gradient(circle at top right, rgba(31, 122, 58, 0.08), transparent 28%),
     radial-gradient(circle at bottom left, rgba(27, 54, 93, 0.08), transparent 32%),
+    var(--color-bg);
+}
+
+html[data-theme='dark'] .app-shell {
+  background:
+    radial-gradient(circle at top right, rgba(61, 154, 90, 0.12), transparent 28%),
+    radial-gradient(circle at bottom left, rgba(142, 176, 214, 0.08), transparent 32%),
     var(--color-bg);
 }
 

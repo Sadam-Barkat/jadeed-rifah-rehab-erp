@@ -16,7 +16,6 @@ class Doctor extends Model
         'phone',
         'email',
         'status',
-        'employee_id',
         'user_id',
         'notes',
         'created_by',
@@ -25,11 +24,6 @@ class Doctor extends Model
     public function rounds(): HasMany
     {
         return $this->hasMany(DoctorRound::class);
-    }
-
-    public function employee(): BelongsTo
-    {
-        return $this->belongsTo(Employee::class);
     }
 
     public function user(): BelongsTo

@@ -11,49 +11,44 @@ class RoleUserSeeder extends Seeder
 {
     public function run(): void
     {
-        $allModules = [
-            'owner-dashboard', 'ceo-control', 'general-management', 'tasks',
-            'attendance', 'hr', 'payroll', 'users',
-            'registration', 'admission', 'patients', 'medical-records', 'doctors',
-            'psychology', 'nursing', 'pharmacy', 'lab', 'treatment', 'discharge', 'beds',
-            'billing', 'accounts', 'purchase', 'inventory',
-            'kitchen', 'canteen', 'assets', 'visitors',
-            'compliance', 'reports', 'complaints', 'security', 'documents',
-            'notifications', 'settings',
+        // Admin: overview tabs + management. `patients` is API-only for Management tab.
+        $adminModules = [
+            'owner-dashboard',
+            'admin-patients',
+            'admin-pharmacy',
+            'admin-inventory',
+            'admin-finance',
+            'admin-visitors',
+            'admin-staff',
+            'users',
+            'settings',
+            'logs',
+            'patients',
         ];
 
         $roleModules = [
-            'owner' => $allModules,
-            'general-manager' => array_values(array_diff($allModules, ['settings'])),
-            'administrator' => [
-                'general-management', 'tasks', 'attendance', 'registration', 'admission',
-                'patients', 'beds', 'discharge', 'visitors', 'documents', 'notifications',
-            ],
+            'admin' => $adminModules,
+            'receptionist' => ['registration', 'admission', 'patients', 'beds'],
+            'gatekeeper' => ['visitors'],
             'doctor' => [
-                'patients', 'medical-records', 'doctors', 'nursing', 'pharmacy', 'lab',
-                'treatment', 'discharge', 'documents',
+                'patients', 'medical-records', 'doctors', 'nursing',
+                'treatment', 'discharge',
             ],
-            'psychologist' => ['patients', 'psychology', 'treatment', 'documents'],
-            'nurse' => ['patients', 'nursing', 'medical-records', 'pharmacy', 'documents'],
-            'accountant' => ['billing', 'accounts', 'purchase', 'reports', 'documents'],
-            'hr-officer' => ['attendance', 'hr', 'payroll', 'users', 'documents'],
-            'pharmacist' => ['pharmacy', 'inventory', 'purchase', 'documents'],
-            'kitchen-manager' => ['kitchen', 'canteen', 'inventory', 'purchase'],
-            'security-staff' => ['visitors', 'security', 'complaints'],
+            'nurse' => ['patients', 'nursing', 'medical-records'],
+            'finance' => ['billing', 'accounts', 'reports'],
+            'pharmacist' => ['pharmacy'],
+            'inventory-manager' => ['inventory', 'kitchen'],
         ];
 
         $roleNames = [
-            'owner' => 'Owner / Chairman',
-            'general-manager' => 'General Manager',
-            'administrator' => 'Administrator',
-            'doctor' => 'Psychiatrist / Doctor',
-            'psychologist' => 'Psychologist',
+            'admin' => 'Admin',
+            'receptionist' => 'Receptionist',
+            'gatekeeper' => 'Gatekeeper',
+            'doctor' => 'Doctor',
             'nurse' => 'Nurse',
-            'accountant' => 'Accountant',
-            'hr-officer' => 'HR Officer',
+            'finance' => 'Finance',
             'pharmacist' => 'Pharmacist',
-            'kitchen-manager' => 'Kitchen / Canteen Manager',
-            'security-staff' => 'Gate / Security Staff',
+            'inventory-manager' => 'Inventory Manager',
         ];
 
         foreach ($roleNames as $slug => $name) {
@@ -66,33 +61,31 @@ class RoleUserSeeder extends Seeder
             );
         }
 
-        $ownerRole = Role::query()->where('slug', 'owner')->firstOrFail();
+        $adminRole = Role::query()->where('slug', 'admin')->firstOrFail();
 
         User::query()->updateOrCreate(
-            ['email' => 'owner@jadeed.local'],
+            ['email' => 'admin@jadeed.local'],
             [
-                'name' => 'Owner',
-                'password' => Hash::make('Owner@123'),
-                'role_id' => $ownerRole->id,
+                'staff_code' => 'ADM-0001',
+                'name' => 'Admin',
+                'password' => Hash::make('Admin@123'),
+                'role_id' => $adminRole->id,
                 'is_active' => true,
+                'must_change_password' => false,
             ]
         );
 
-        foreach ($roleNames as $slug => $name) {
-            if ($slug === 'owner') {
-                continue;
-            }
+        $fallbackRoleId = Role::query()->where('slug', 'receptionist')->value('id') ?? $adminRole->id;
 
-            $role = Role::query()->where('slug', $slug)->firstOrFail();
-            User::query()->updateOrCreate(
-                ['email' => $slug.'@jadeed.local'],
-                [
-                    'name' => $name,
-                    'password' => Hash::make('Demo@123'),
-                    'role_id' => $role->id,
-                    'is_active' => true,
-                ]
-            );
-        }
+        User::query()
+            ->where('email', '!=', 'admin@jadeed.local')
+            ->update([
+                'is_active' => false,
+                'role_id' => $fallbackRoleId,
+            ]);
+
+        Role::query()
+            ->whereNotIn('slug', array_keys($roleNames))
+            ->delete();
     }
 }

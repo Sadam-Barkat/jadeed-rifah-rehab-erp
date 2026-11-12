@@ -15,6 +15,7 @@ class Medicine extends Model
         'form',
         'strength',
         'unit',
+        'manufacturer',
         'stock_qty',
         'reorder_level',
         'unit_price',
@@ -34,6 +35,11 @@ class Medicine extends Model
     public function dispenses(): HasMany
     {
         return $this->hasMany(MedicineDispense::class);
+    }
+
+    public function movements(): HasMany
+    {
+        return $this->hasMany(MedicineMovement::class);
     }
 
     public function creator(): BelongsTo

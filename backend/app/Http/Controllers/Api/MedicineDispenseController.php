@@ -17,8 +17,12 @@ class MedicineDispenseController extends Controller
         $perPage = min(max((int) $request->integer('per_page', 20), 1), 50);
 
         $query = MedicineDispense::query()
-            ->with(['patient', 'admission', 'medicine'])
+            ->with(['patient', 'admission', 'medicine', 'creator:id,name,staff_code'])
             ->latest('dispensed_at');
+
+        if ($createdBy = $request->integer('created_by')) {
+            $query->where('created_by', $createdBy);
+        }
 
         if ($search = trim((string) $request->get('search', ''))) {
             $query->where(function ($q) use ($search) {
@@ -31,6 +35,9 @@ class MedicineDispenseController extends Controller
                     ->orWhereHas('medicine', function ($mq) use ($search) {
                         $mq->where('name', 'like', "%{$search}%")
                             ->orWhere('medicine_code', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('creator', function ($uq) use ($search) {
+                        $uq->where('name', 'like', "%{$search}%");
                     });
             });
         }
@@ -93,7 +100,7 @@ class MedicineDispenseController extends Controller
                     'dispensed_at' => $data['dispensed_at'] ?? now(),
                     'status' => 'dispensed',
                     'created_by' => $request->user()->id,
-                ])->load(['patient', 'admission', 'medicine']);
+                ])->load(['patient', 'admission', 'medicine', 'creator:id,name,staff_code']);
             });
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
@@ -116,6 +123,8 @@ class MedicineDispenseController extends Controller
             'notes' => $dispense->notes,
             'dispensed_at' => $dispense->dispensed_at?->toDateTimeString(),
             'status' => $dispense->status,
+            'recorded_by' => $dispense->creator?->name,
+            'recorded_by_id' => $dispense->created_by,
             'patient' => [
                 'id' => $dispense->patient?->id,
                 'patient_code' => $dispense->patient?->patient_code,

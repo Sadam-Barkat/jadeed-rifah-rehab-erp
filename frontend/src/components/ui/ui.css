@@ -94,7 +94,8 @@
 }
 
 .ui-input,
-.ui-select {
+.ui-select,
+select {
   min-height: 44px;
   width: 100%;
   border: 1px solid var(--color-border);
@@ -102,6 +103,18 @@
   padding: 0 var(--space-3);
   background: var(--color-surface);
   color: var(--color-text);
+}
+
+.ui-select,
+select {
+  padding-right: 2.25rem;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2312263f' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 1rem;
 }
 
 .password-field {
@@ -135,7 +148,8 @@
 }
 
 .ui-input:focus,
-.ui-select:focus {
+.ui-select:focus,
+select:focus {
   outline: 2px solid rgba(31, 122, 58, 0.28);
   border-color: var(--color-primary);
 }
@@ -157,6 +171,17 @@
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
   border: 1px solid var(--color-border);
+  max-height: min(90vh, 900px);
+  display: flex;
+  flex-direction: column;
+}
+
+.ui-modal-lg {
+  width: min(960px, 96vw);
+}
+
+.ui-modal-xl {
+  width: min(1240px, 98vw);
 }
 
 .ui-modal-header,
@@ -166,6 +191,7 @@
   justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-4) var(--space-5);
+  flex-shrink: 0;
 }
 
 .ui-modal-footer {
@@ -176,6 +202,9 @@
 .ui-modal-body {
   padding: 0 var(--space-5) var(--space-5);
   color: var(--color-muted);
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .ui-skeleton {

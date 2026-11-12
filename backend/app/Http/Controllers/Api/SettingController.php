@@ -3,12 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\BackupLog;
 use App\Models\FacilitySetting;
 use App\Support\Audit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 class SettingController extends Controller
 {
@@ -51,52 +49,6 @@ class SettingController extends Controller
         ]);
     }
 
-    public function indexBackups(Request $request): JsonResponse
-    {
-        $perPage = min(max((int) $request->integer('per_page', 20), 1), 50);
-
-        $paginator = BackupLog::query()
-            ->with(['recorder'])
-            ->latest('backed_up_at')
-            ->paginate($perPage);
-
-        return response()->json([
-            'data' => collect($paginator->items())->map(fn (BackupLog $b) => $this->backupPayload($b)),
-            'meta' => [
-                'current_page' => $paginator->currentPage(),
-                'last_page' => $paginator->lastPage(),
-                'per_page' => $paginator->perPage(),
-                'total' => $paginator->total(),
-            ],
-        ]);
-    }
-
-    public function storeBackup(Request $request): JsonResponse
-    {
-        $data = $request->validate([
-            'backed_up_at' => ['nullable', 'date'],
-            'method' => ['nullable', Rule::in(['manual', 'scheduled'])],
-            'status' => ['nullable', Rule::in(['success', 'failed'])],
-            'storage_note' => ['nullable', 'string', 'max:255'],
-            'notes' => ['nullable', 'string'],
-        ]);
-
-        $backup = BackupLog::query()->create([
-            'backup_code' => $this->nextBackupCode(),
-            'backed_up_at' => $data['backed_up_at'] ?? now(),
-            'method' => $data['method'] ?? 'manual',
-            'status' => $data['status'] ?? 'success',
-            'storage_note' => $data['storage_note'] ?? null,
-            'notes' => $data['notes'] ?? null,
-            'recorded_by' => $request->user()->id,
-        ])->load(['recorder']);
-
-        return response()->json([
-            'message' => 'Backup log recorded',
-            'data' => $this->backupPayload($backup),
-        ], 201);
-    }
-
     private function currentFacility(): FacilitySetting
     {
         $setting = FacilitySetting::query()->with(['updater'])->latest('id')->first();
@@ -135,26 +87,5 @@ class SettingController extends Controller
             'updated_by' => $setting->updater?->name,
             'updated_at' => $setting->updated_at?->toDateTimeString(),
         ];
-    }
-
-    private function backupPayload(BackupLog $backup): array
-    {
-        return [
-            'id' => $backup->id,
-            'backup_code' => $backup->backup_code,
-            'backed_up_at' => $backup->backed_up_at?->toDateTimeString(),
-            'method' => $backup->method,
-            'status' => $backup->status,
-            'storage_note' => $backup->storage_note,
-            'notes' => $backup->notes,
-            'recorded_by' => $backup->recorder?->name,
-        ];
-    }
-
-    private function nextBackupCode(): string
-    {
-        $n = BackupLog::query()->count() + 1;
-
-        return 'BKP-'.str_pad((string) $n, 5, '0', STR_PAD_LEFT);
     }
 }

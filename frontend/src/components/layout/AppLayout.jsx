@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Navigate, Outlet } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useAuth } from '../../context/AuthContext'
@@ -7,24 +7,46 @@ import Sidebar from './Sidebar'
 import Topbar from './Topbar'
 import './layout.css'
 
+const COLLAPSE_KEY = 'jadeed_sidebar_collapsed'
+
 export default function AppLayout() {
   const { isAuthenticated, logout, booting } = useAuth()
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(COLLAPSE_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
   const [logoutOpen, setLogoutOpen] = useState(false)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }, [collapsed])
 
   if (booting) return null
   if (!isAuthenticated) return <Navigate to="/login" replace />
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <div
-        className={`sidebar-backdrop ${sidebarOpen ? 'show' : ''}`}
-        onClick={() => setSidebarOpen(false)}
+        className={`sidebar-backdrop ${mobileOpen ? 'show' : ''}`}
+        onClick={() => setMobileOpen(false)}
       />
-      <Sidebar open={sidebarOpen} onNavigate={() => setSidebarOpen(false)} />
+      <Sidebar
+        open={mobileOpen}
+        collapsed={collapsed}
+        onNavigate={() => setMobileOpen(false)}
+        onToggleCollapse={() => setCollapsed((v) => !v)}
+      />
       <div className="app-main">
         <Topbar
-          onMenuToggle={() => setSidebarOpen((v) => !v)}
+          onMenuToggle={() => setMobileOpen((v) => !v)}
           onLogoutClick={() => setLogoutOpen(true)}
         />
         <main className="app-content">

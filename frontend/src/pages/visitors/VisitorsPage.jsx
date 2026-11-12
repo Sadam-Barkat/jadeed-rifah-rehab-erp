@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
 import Button from '../../components/ui/Button'
@@ -8,21 +8,20 @@ import '../pages.css'
 const emptyForm = {
   admission_id: '',
   visitor_name: '',
-  relation: '',
+  party_size: '1',
+  relation: 'relative',
   phone: '',
   cnic: '',
-  purpose: '',
-  items_brought: '',
-  notes: '',
 }
 
 export default function VisitorsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [updatingId, setUpdatingId] = useState(null)
   const [admissions, setAdmissions] = useState([])
   const [visits, setVisits] = useState([])
   const [form, setForm] = useState(emptyForm)
+  const [search, setSearch] = useState('')
+  const [patientSearch, setPatientSearch] = useState('')
 
   function setField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -33,7 +32,7 @@ export default function VisitorsPage() {
     try {
       const [admRes, visRes] = await Promise.all([
         api('/admissions?status=active&per_page=50'),
-        api('/visitor-logs?per_page=20'),
+        api(`/visitor-logs?per_page=50${search ? `&search=${encodeURIComponent(search)}` : ''}`),
       ])
       setAdmissions(admRes.data || [])
       setVisits(visRes.data || [])
@@ -48,6 +47,17 @@ export default function VisitorsPage() {
     load()
   }, [])
 
+  const filteredAdmissions = useMemo(() => {
+    const q = patientSearch.trim().toLowerCase()
+    if (!q) return admissions
+    return admissions.filter((a) => {
+      const name = (a.patient?.full_name || '').toLowerCase()
+      const code = (a.admission_code || '').toLowerCase()
+      const pcode = (a.patient?.patient_code || '').toLowerCase()
+      return name.includes(q) || code.includes(q) || pcode.includes(q)
+    })
+  }, [admissions, patientSearch])
+
   async function handleSubmit(e) {
     e.preventDefault()
     setSaving(true)
@@ -57,15 +67,13 @@ export default function VisitorsPage() {
         body: {
           admission_id: Number(form.admission_id),
           visitor_name: form.visitor_name,
+          party_size: Number(form.party_size) || 1,
           relation: form.relation || null,
-          phone: form.phone || null,
+          phone: form.phone,
           cnic: form.cnic || null,
-          purpose: form.purpose || null,
-          items_brought: form.items_brought || null,
-          notes: form.notes || null,
         },
       })
-      toast.success(`Visitor ${data.data.visit_code} checked in`)
+      toast.success(`Visitor ${data.data.visit_code} logged`)
       setForm(emptyForm)
       load()
     } catch (err) {
@@ -75,28 +83,12 @@ export default function VisitorsPage() {
     }
   }
 
-  async function checkOut(visit) {
-    setUpdatingId(visit.id)
-    try {
-      const data = await api(`/visitor-logs/${visit.id}`, {
-        method: 'PUT',
-        body: { status: 'checked_out' },
-      })
-      toast.success(`${data.data.visit_code} checked out`)
-      load()
-    } catch (err) {
-      toast.error(err.message || 'Check-out failed')
-    } finally {
-      setUpdatingId(null)
-    }
-  }
-
   return (
     <div className="page">
       <div className="page-header">
         <div>
-          <p className="eyebrow">Operations</p>
-          <h2>Family & Visitors</h2>
+          <p className="eyebrow">Gate</p>
+          <h2>Gate Visitors</h2>
         </div>
       </div>
 
@@ -105,8 +97,18 @@ export default function VisitorsPage() {
       ) : (
         <>
           <form className="panel form-grid" onSubmit={handleSubmit}>
-            <div className="ui-field">
-              <label htmlFor="admission_id">Active admission</label>
+            <div className="ui-field full">
+              <label htmlFor="patient_search">Find patient</label>
+              <input
+                id="patient_search"
+                className="ui-input"
+                value={patientSearch}
+                onChange={(e) => setPatientSearch(e.target.value)}
+                placeholder="Search name or code"
+              />
+            </div>
+            <div className="ui-field full">
+              <label htmlFor="admission_id">Patient</label>
               <select
                 id="admission_id"
                 className="ui-select"
@@ -114,15 +116,40 @@ export default function VisitorsPage() {
                 value={form.admission_id}
                 onChange={(e) => setField('admission_id', e.target.value)}
               >
-                <option value="">Select admission</option>
-                {admissions.map((a) => (
+                <option value="">Select</option>
+                {filteredAdmissions.map((a) => (
                   <option key={a.id} value={a.id}>
-                    {a.admission_code} · {a.patient?.full_name}
+                    {a.patient?.full_name || a.patient?.patient_code} — {a.admission_code}
                   </option>
                 ))}
               </select>
             </div>
-
+            <div className="ui-field">
+              <label htmlFor="party_size">Party size</label>
+              <select
+                id="party_size"
+                className="ui-select"
+                value={form.party_size}
+                onChange={(e) => setField('party_size', e.target.value)}
+              >
+                {[1, 2, 3, 4, 5, 6].map((n) => (
+                  <option key={n} value={n}>{n === 1 ? 'Single (1)' : n}</option>
+                ))}
+              </select>
+            </div>
+            <div className="ui-field">
+              <label htmlFor="relation">Relation</label>
+              <select
+                id="relation"
+                className="ui-select"
+                value={form.relation}
+                onChange={(e) => setField('relation', e.target.value)}
+              >
+                <option value="relative">Relative</option>
+                <option value="friend">Friend</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
             <div className="ui-field">
               <label htmlFor="visitor_name">Visitor name</label>
               <input
@@ -133,27 +160,16 @@ export default function VisitorsPage() {
                 onChange={(e) => setField('visitor_name', e.target.value)}
               />
             </div>
-
-            <div className="ui-field">
-              <label htmlFor="relation">Relation</label>
-              <input
-                id="relation"
-                className="ui-input"
-                value={form.relation}
-                onChange={(e) => setField('relation', e.target.value)}
-              />
-            </div>
-
             <div className="ui-field">
               <label htmlFor="phone">Phone</label>
               <input
                 id="phone"
                 className="ui-input"
+                required
                 value={form.phone}
                 onChange={(e) => setField('phone', e.target.value)}
               />
             </div>
-
             <div className="ui-field">
               <label htmlFor="cnic">CNIC</label>
               <input
@@ -163,99 +179,50 @@ export default function VisitorsPage() {
                 onChange={(e) => setField('cnic', e.target.value)}
               />
             </div>
-
-            <div className="ui-field">
-              <label htmlFor="purpose">Purpose</label>
-              <input
-                id="purpose"
-                className="ui-input"
-                value={form.purpose}
-                onChange={(e) => setField('purpose', e.target.value)}
-              />
-            </div>
-
-            <div className="ui-field full">
-              <label htmlFor="items_brought">Items brought</label>
-              <input
-                id="items_brought"
-                className="ui-input"
-                value={form.items_brought}
-                onChange={(e) => setField('items_brought', e.target.value)}
-              />
-            </div>
-
-            <div className="ui-field full">
-              <label htmlFor="notes">Notes</label>
-              <input
-                id="notes"
-                className="ui-input"
-                value={form.notes}
-                onChange={(e) => setField('notes', e.target.value)}
-              />
-            </div>
-
-            <div className="form-actions full">
-              <Button type="submit" disabled={saving || !admissions.length}>
-                {saving ? 'Saving...' : 'Check in visitor'}
-              </Button>
+            <div className="ui-field full actions">
+              <Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Log visitor'}</Button>
             </div>
           </form>
 
-          <section className="panel">
-            <div className="panel-head">
-              <h3>Visitor log</h3>
+          <div className="panel">
+            <div className="list-toolbar">
+              <input
+                className="ui-input"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search visitors"
+              />
+              <Button type="button" variant="secondary" onClick={load}>Search</Button>
             </div>
-            {visits.length === 0 ? (
-              <p className="panel-copy">No visitor logs yet.</p>
-            ) : (
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Code</th>
-                      <th>Visitor</th>
-                      <th>Patient</th>
-                      <th>Check-in</th>
-                      <th>Status</th>
-                      <th>Actions</th>
+            <div className="scroll-panel">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Code</th>
+                    <th>Patient</th>
+                    <th>Visitor</th>
+                    <th>Party</th>
+                    <th>Phone</th>
+                    <th>By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visits.length === 0 ? (
+                    <tr><td colSpan={6}>No visitors</td></tr>
+                  ) : visits.map((v) => (
+                    <tr key={v.id}>
+                      <td>{v.visit_code}</td>
+                      <td>{v.patient?.full_name || '—'}</td>
+                      <td>{v.visitor_name}</td>
+                      <td>{v.party_size || 1}</td>
+                      <td>{v.phone || '—'}</td>
+                      <td>{v.logged_by || '—'}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {visits.map((v) => (
-                      <tr key={v.id}>
-                        <td>{v.visit_code}</td>
-                        <td>
-                          {v.visitor_name}
-                          {v.relation ? ` · ${v.relation}` : ''}
-                        </td>
-                        <td>
-                          {v.patient?.patient_code} · {v.patient?.full_name}
-                        </td>
-                        <td>{v.check_in_at}</td>
-                        <td>
-                          <span className="badge">{v.status}</span>
-                        </td>
-                        <td>
-                          {v.status === 'checked_in' ? (
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              disabled={updatingId === v.id}
-                              onClick={() => checkOut(v)}
-                            >
-                              Check out
-                            </Button>
-                          ) : (
-                            v.check_out_at || '—'
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </>
       )}
     </div>

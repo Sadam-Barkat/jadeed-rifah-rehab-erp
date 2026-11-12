@@ -18,7 +18,7 @@ class PaymentController extends Controller
         $perPage = min(max((int) $request->integer('per_page', 20), 1), 50);
 
         $query = Payment::query()
-            ->with(['patient', 'invoice'])
+            ->with(['patient', 'invoice', 'creator'])
             ->latest('paid_at');
 
         if ($invoiceId = $request->integer('invoice_id')) {
@@ -55,7 +55,7 @@ class PaymentController extends Controller
         $data = $request->validate([
             'invoice_id' => ['required', 'exists:invoices,id'],
             'amount' => ['required', 'numeric', 'min:0.01'],
-            'method' => ['nullable', Rule::in(['cash', 'bank', 'jazzcash', 'easypaisa', 'other'])],
+            'method' => ['nullable', Rule::in(['cash', 'card', 'online', 'bank', 'jazzcash', 'easypaisa', 'other'])],
             'paid_at' => ['nullable', 'date'],
             'reference' => ['nullable', 'string', 'max:150'],
             'notes' => ['nullable', 'string'],
@@ -96,7 +96,7 @@ class PaymentController extends Controller
                     'status' => $status,
                 ]);
 
-                return $payment->load(['patient', 'invoice']);
+                return $payment->load(['patient', 'invoice', 'creator']);
             });
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
@@ -120,6 +120,7 @@ class PaymentController extends Controller
             'paid_at' => $payment->paid_at?->toDateTimeString(),
             'reference' => $payment->reference,
             'notes' => $payment->notes,
+            'collected_by' => $payment->creator?->name,
             'patient' => [
                 'id' => $payment->patient?->id,
                 'patient_code' => $payment->patient?->patient_code,

@@ -7,12 +7,42 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class InventoryMovement extends Model
 {
+    public const PURPOSES = [
+        'purchase',
+        'kitchen_use',
+        'cleaning',
+        'patient_care',
+        'maintenance',
+        'return',
+        'waste',
+        'transfer',
+        'adjustment',
+        'other',
+    ];
+
+    public const DEPARTMENTS = [
+        'kitchen',
+        'nursing',
+        'pharmacy',
+        'admin',
+        'cleaning',
+        'maintenance',
+        'gate',
+        'other',
+    ];
+
     protected $fillable = [
         'movement_code',
         'inventory_item_id',
         'type',
+        'purpose',
+        'department',
+        'issued_to',
+        'used_for',
         'quantity',
+        'unit',
         'reference',
+        'bill_image_path',
         'notes',
         'moved_at',
         'created_by',

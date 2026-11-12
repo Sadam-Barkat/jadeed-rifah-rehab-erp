@@ -65,6 +65,45 @@ class AuthController extends Controller
         ]);
     }
 
+    public function updateAccount(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $data = $request->validate([
+            'email' => ['required', 'email', 'max:150', 'unique:users,email,'.$user->id],
+            'current_password' => ['required', 'string'],
+            'password' => ['nullable', 'string', 'min:8', 'confirmed'],
+        ]);
+
+        if (! Hash::check($data['current_password'], $user->password)) {
+            throw ValidationException::withMessages([
+                'current_password' => ['Current password is incorrect.'],
+            ]);
+        }
+
+        $user->email = $data['email'];
+        if (! empty($data['password'])) {
+            $user->password = $data['password'];
+            $user->must_change_password = false;
+        }
+        $user->save();
+
+        Audit::log(
+            'account_update',
+            'settings',
+            'user',
+            $user->id,
+            "Account updated for {$user->email}",
+            userId: $user->id,
+        );
+
+        return response()->json([
+            'message' => 'Account updated',
+            'user' => $this->userPayload($user->load('role')),
+        ]);
+    }
+
     public function logout(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -99,6 +138,8 @@ class AuthController extends Controller
             'role' => $user->role?->name,
             'role_slug' => $user->role?->slug,
             'modules' => $user->role?->modules ?? [],
+            'must_change_password' => (bool) $user->must_change_password,
+            'staff_code' => $user->staff_code,
         ];
     }
 }

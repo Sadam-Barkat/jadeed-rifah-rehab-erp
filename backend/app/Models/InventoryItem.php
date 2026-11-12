@@ -8,6 +8,21 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class InventoryItem extends Model
 {
+    public const CATEGORIES = [
+        'kitchen',
+        'beds',
+        'security',
+        'furniture',
+        'equipment',
+        'electronics',
+        'cleaning',
+        'linen',
+        'maintenance',
+        'medical_supply',
+        'general',
+        'other',
+    ];
+
     protected $fillable = [
         'item_code',
         'name',
@@ -16,6 +31,8 @@ class InventoryItem extends Model
         'stock_qty',
         'reorder_level',
         'unit_cost',
+        'bill_image_path',
+        'supplier',
         'status',
         'created_by',
     ];

@@ -13,13 +13,8 @@ class DatabaseSeeder extends Seeder
             RoomBedSeeder::class,
             MedicineSeeder::class,
             FeePackageSeeder::class,
-            EmployeeSeeder::class,
             InventorySeeder::class,
-            PurchaseCanteenSeeder::class,
-            AssetSeeder::class,
             DoctorSeeder::class,
-            ComplianceSeeder::class,
-            SecuritySeeder::class,
             SettingsSeeder::class,
         ]);
     }

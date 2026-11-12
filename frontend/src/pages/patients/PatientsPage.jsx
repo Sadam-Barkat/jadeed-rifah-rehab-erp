@@ -6,7 +6,7 @@ import Button from '../../components/ui/Button'
 import { SkeletonCards } from '../../components/ui/Skeleton'
 import '../pages.css'
 
-export default function PatientsPage() {
+export default function PatientsPage({ embedded = false }) {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [debounced, setDebounced] = useState('')
@@ -70,18 +70,26 @@ export default function PatientsPage() {
   }
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">Patient Care</p>
-          <h2>Patient Management</h2>
-        </div>
-        <div className="page-actions">
+    <div className={embedded ? 'embedded-page' : 'page'}>
+      {embedded ? (
+        <div className="list-toolbar">
           <Link className="ui-btn ui-btn-primary ui-btn-md" to="/app/registration">
             Register patient
           </Link>
         </div>
-      </div>
+      ) : (
+        <div className="page-header">
+          <div>
+            <p className="eyebrow">Patient Care</p>
+            <h2>Patient Management</h2>
+          </div>
+          <div className="page-actions">
+            <Link className="ui-btn ui-btn-primary ui-btn-md" to="/app/registration">
+              Register patient
+            </Link>
+          </div>
+        </div>
+      )}
 
       <section className="panel">
         <div className="filters-row">
@@ -105,7 +113,7 @@ export default function PatientsPage() {
         ) : rows.length === 0 ? (
           <p className="panel-copy">No patients found.</p>
         ) : (
-          <div className="table-wrap">
+          <div className="scroll-panel">
             <table className="data-table">
               <thead>
                 <tr>
@@ -131,7 +139,7 @@ export default function PatientsPage() {
                     <td>{row.guardian_name || '—'}</td>
                     <td>
                       <Link className="ui-btn ui-btn-ghost ui-btn-sm" to={`/app/patients/${row.id}`}>
-                        View
+                        Manage
                       </Link>
                     </td>
                   </tr>

@@ -23,6 +23,11 @@ class InvoiceController extends Controller
             $query->where('status', $status);
         }
 
+        if ($request->boolean('due_only')) {
+            $query->where('balance', '>', 0)
+                ->whereIn('status', ['unpaid', 'partial']);
+        }
+
         if ($search = trim((string) $request->get('search', ''))) {
             $query->where(function ($q) use ($search) {
                 $q->where('invoice_code', 'like', "%{$search}%")

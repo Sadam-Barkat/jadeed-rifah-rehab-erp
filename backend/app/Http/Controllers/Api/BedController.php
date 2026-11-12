@@ -13,17 +13,21 @@ class BedController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
+        $activeBeds = fn ($q) => $q->where('status', '!=', 'discarded')->orderBy('bed_code');
+
         $rooms = Room::query()
-            ->with(['beds' => fn ($q) => $q->orderBy('bed_code')])
+            ->with(['beds' => $activeBeds])
             ->orderBy('code')
             ->get();
 
+        $live = Bed::query()->where('status', '!=', 'discarded');
+
         $summary = [
-            'total_beds' => Bed::query()->count(),
-            'available' => Bed::query()->where('status', 'available')->count(),
-            'occupied' => Bed::query()->where('status', 'occupied')->count(),
-            'cleaning' => Bed::query()->where('status', 'cleaning')->count(),
-            'maintenance' => Bed::query()->where('status', 'maintenance')->count(),
+            'total_beds' => (clone $live)->count(),
+            'available' => (clone $live)->where('status', 'available')->count(),
+            'occupied' => (clone $live)->where('status', 'occupied')->count(),
+            'cleaning' => (clone $live)->where('status', 'cleaning')->count(),
+            'maintenance' => (clone $live)->where('status', 'maintenance')->count(),
         ];
 
         return response()->json([
@@ -65,20 +69,55 @@ class BedController extends Controller
         ]);
     }
 
+    /** Beds selectable for Inventory maintenance / discard. */
+    public function forInventory(): JsonResponse
+    {
+        $beds = Bed::query()
+            ->with('room:id,name,code,floor')
+            ->withExists(['admissions as has_active_admission' => fn ($q) => $q->where('status', 'active')])
+            ->where('status', '!=', 'discarded')
+            ->orderBy('bed_code')
+            ->get();
+
+        return response()->json([
+            'data' => $beds->map(function (Bed $bed) {
+                $inUse = $bed->status === 'occupied' || (bool) $bed->has_active_admission;
+
+                return [
+                    'id' => $bed->id,
+                    'bed_code' => $bed->bed_code,
+                    'status' => $bed->status,
+                    'in_use' => $inUse,
+                    'room_name' => $bed->room?->name,
+                    'room_code' => $bed->room?->code,
+                    'floor' => $bed->room?->floor,
+                    'label' => trim(
+                        $bed->bed_code
+                        .' · '.($bed->room?->name ?: 'Room')
+                        .' · '.$bed->status
+                        .($inUse ? ' (in use)' : '')
+                    ),
+                ];
+            }),
+        ]);
+    }
+
     public function updateStatus(Request $request, Bed $bed): JsonResponse
     {
+        if ($bed->status === 'discarded') {
+            return response()->json(['message' => 'Discarded beds cannot be updated.'], 422);
+        }
+
         $data = $request->validate([
             'status' => ['required', Rule::in(['available', 'occupied', 'cleaning', 'maintenance'])],
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
-        if ($data['status'] === 'available' && $bed->status === 'occupied') {
-            $active = $bed->admissions()->where('status', 'active')->exists();
-            if ($active) {
-                return response()->json([
-                    'message' => 'Bed has an active admission. Discharge first.',
-                ], 422);
-            }
+        $active = $bed->admissions()->where('status', 'active')->exists();
+        if ($active && in_array($data['status'], ['available', 'cleaning', 'maintenance'], true)) {
+            return response()->json([
+                'message' => 'Bed has an active admission. Discharge first.',
+            ], 422);
         }
 
         $bed->update([

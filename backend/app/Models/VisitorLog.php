@@ -12,6 +12,7 @@ class VisitorLog extends Model
         'admission_id',
         'patient_id',
         'visitor_name',
+        'party_size',
         'relation',
         'phone',
         'cnic',

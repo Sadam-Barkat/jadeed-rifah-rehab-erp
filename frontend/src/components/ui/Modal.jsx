@@ -9,9 +9,11 @@ export default function Modal({
   children,
   onClose,
   confirmLabel = 'Confirm',
-  cancelLabel = 'Cancel',
+  cancelLabel = 'Close',
   onConfirm,
   danger = false,
+  size = 'md',
+  hideFooter = false,
 }) {
   useEffect(() => {
     if (!open) return undefined
@@ -27,7 +29,7 @@ export default function Modal({
   return (
     <div className="ui-modal-overlay" role="presentation" onClick={onClose}>
       <div
-        className="ui-modal"
+        className={`ui-modal ${size === 'lg' || size === 'xl' ? `ui-modal-${size}` : ''}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -40,16 +42,18 @@ export default function Modal({
           </button>
         </div>
         <div className="ui-modal-body">{children}</div>
-        <div className="ui-modal-footer">
-          <Button variant="ghost" onClick={onClose}>
-            {cancelLabel}
-          </Button>
-          {onConfirm ? (
-            <Button variant={danger ? 'danger' : 'primary'} onClick={onConfirm}>
-              {confirmLabel}
+        {!hideFooter ? (
+          <div className="ui-modal-footer">
+            <Button variant="ghost" onClick={onClose}>
+              {cancelLabel}
             </Button>
-          ) : null}
-        </div>
+            {onConfirm ? (
+              <Button variant={danger ? 'danger' : 'primary'} onClick={onConfirm}>
+                {confirmLabel}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   )

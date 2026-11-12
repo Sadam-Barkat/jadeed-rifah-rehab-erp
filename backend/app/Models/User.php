@@ -15,11 +15,13 @@ class User extends Authenticatable
     use HasApiTokens, HasFactory, Notifiable;
 
     protected $fillable = [
+        'staff_code',
         'name',
         'email',
         'password',
         'role_id',
         'is_active',
+        'must_change_password',
     ];
 
     protected $hidden = [
@@ -33,6 +35,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
+            'must_change_password' => 'boolean',
         ];
     }
 

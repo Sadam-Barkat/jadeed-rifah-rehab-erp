@@ -43,6 +43,11 @@ class Patient extends Model
         return $this->hasMany(PatientGuardian::class);
     }
 
+    public function admissions(): HasMany
+    {
+        return $this->hasMany(Admission::class);
+    }
+
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');

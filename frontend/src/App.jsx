@@ -4,12 +4,11 @@ import { Toaster } from 'sonner'
 import { AuthProvider } from './context/AuthContext'
 import AppLayout from './components/layout/AppLayout'
 import HomeRedirect from './components/HomeRedirect'
-import { MODULES } from './data/modules'
 import Skeleton from './components/ui/Skeleton'
 
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const OwnerDashboard = lazy(() => import('./pages/OwnerDashboard'))
-const ModulePage = lazy(() => import('./pages/ModulePage'))
+const RoleHomePage = lazy(() => import('./pages/homes/RoleHomePage'))
 const RegistrationPage = lazy(() => import('./pages/patients/RegistrationPage'))
 const PatientsPage = lazy(() => import('./pages/patients/PatientsPage'))
 const PatientDetailPage = lazy(() => import('./pages/patients/PatientDetailPage'))
@@ -21,68 +20,17 @@ const MedicalRecordsPage = lazy(() => import('./pages/medical/MedicalRecordsPage
 const DoctorsPage = lazy(() => import('./pages/doctors/DoctorsPage'))
 const NursingPage = lazy(() => import('./pages/nursing/NursingPage'))
 const PharmacyPage = lazy(() => import('./pages/pharmacy/PharmacyPage'))
-const LabPage = lazy(() => import('./pages/lab/LabPage'))
 const BillingPage = lazy(() => import('./pages/billing/BillingPage'))
-const PsychologyPage = lazy(() => import('./pages/psychology/PsychologyPage'))
 const VisitorsPage = lazy(() => import('./pages/visitors/VisitorsPage'))
-const HrPage = lazy(() => import('./pages/hr/HrPage'))
-const AttendancePage = lazy(() => import('./pages/attendance/AttendancePage'))
-const PayrollPage = lazy(() => import('./pages/payroll/PayrollPage'))
 const InventoryPage = lazy(() => import('./pages/inventory/InventoryPage'))
 const KitchenPage = lazy(() => import('./pages/kitchen/KitchenPage'))
-const PurchasePage = lazy(() => import('./pages/purchase/PurchasePage'))
-const CanteenPage = lazy(() => import('./pages/canteen/CanteenPage'))
-const DocumentsPage = lazy(() => import('./pages/documents/DocumentsPage'))
-const ComplaintsPage = lazy(() => import('./pages/complaints/ComplaintsPage'))
-const AssetsPage = lazy(() => import('./pages/assets/AssetsPage'))
 const AccountsPage = lazy(() => import('./pages/accounts/AccountsPage'))
 const UsersPage = lazy(() => import('./pages/users/UsersPage'))
-const NotificationsPage = lazy(() => import('./pages/notifications/NotificationsPage'))
-const TasksPage = lazy(() => import('./pages/tasks/TasksPage'))
-const GeneralManagementPage = lazy(() => import('./pages/management/GeneralManagementPage'))
-const CeoControlPage = lazy(() => import('./pages/ceo/CeoControlPage'))
+const ManagementPage = lazy(() => import('./pages/management/ManagementPage'))
+const AdminSectionPage = lazy(() => import('./pages/admin/AdminSectionPage'))
 const ReportsPage = lazy(() => import('./pages/reports/ReportsPage'))
-const CompliancePage = lazy(() => import('./pages/compliance/CompliancePage'))
-const SecurityPage = lazy(() => import('./pages/security/SecurityPage'))
 const SettingsPage = lazy(() => import('./pages/settings/SettingsPage'))
-
-const REAL_MODULE_IDS = new Set([
-  'owner-dashboard',
-  'registration',
-  'patients',
-  'beds',
-  'admission',
-  'treatment',
-  'discharge',
-  'medical-records',
-  'doctors',
-  'nursing',
-  'pharmacy',
-  'lab',
-  'billing',
-  'psychology',
-  'visitors',
-  'hr',
-  'attendance',
-  'payroll',
-  'inventory',
-  'kitchen',
-  'purchase',
-  'canteen',
-  'documents',
-  'complaints',
-  'assets',
-  'accounts',
-  'users',
-  'notifications',
-  'tasks',
-  'general-management',
-  'ceo-control',
-  'reports',
-  'compliance',
-  'security',
-  'settings',
-])
+const LogsPage = lazy(() => import('./pages/logs/LogsPage'))
 
 function RouteFallback() {
   return (
@@ -102,12 +50,23 @@ export default function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/app" element={<AppLayout />}>
               <Route index element={<HomeRedirect />} />
+              <Route path="home/receptionist" element={<RoleHomePage roleKey="receptionist" />} />
+              <Route path="home/gatekeeper" element={<RoleHomePage roleKey="gatekeeper" />} />
+              <Route path="home/doctor" element={<RoleHomePage roleKey="doctor" />} />
+              <Route path="home/nurse" element={<RoleHomePage roleKey="nurse" />} />
+              <Route path="home/finance" element={<RoleHomePage roleKey="finance" />} />
+              <Route path="home/pharmacist" element={<RoleHomePage roleKey="pharmacist" />} />
+              <Route path="home/inventory" element={<RoleHomePage roleKey="inventory-manager" />} />
               <Route path="owner-dashboard" element={<OwnerDashboard />} />
-              <Route path="ceo-control" element={<CeoControlPage />} />
+              <Route path="admin/patients-beds" element={<AdminSectionPage section="patients" fallbackTitle="Patients & beds overview" />} />
+              <Route path="admin/pharmacy" element={<AdminSectionPage section="pharmacy" fallbackTitle="Pharmacy overview" />} />
+              <Route path="admin/inventory" element={<AdminSectionPage section="inventory" fallbackTitle="Inventory overview" />} />
+              <Route path="admin/finance" element={<AdminSectionPage section="finance" fallbackTitle="Billing & finance overview" />} />
+              <Route path="admin/visitors" element={<AdminSectionPage section="visitors" fallbackTitle="Visitors overview" />} />
+              <Route path="admin/staff" element={<AdminSectionPage section="staff" fallbackTitle="Staff overview" />} />
               <Route path="reports" element={<ReportsPage />} />
-              <Route path="compliance" element={<CompliancePage />} />
-              <Route path="security" element={<SecurityPage />} />
               <Route path="settings" element={<SettingsPage />} />
+              <Route path="logs" element={<LogsPage />} />
               <Route path="registration" element={<RegistrationPage />} />
               <Route path="patients" element={<PatientsPage />} />
               <Route path="patients/:id" element={<PatientDetailPage />} />
@@ -119,32 +78,13 @@ export default function App() {
               <Route path="doctors" element={<DoctorsPage />} />
               <Route path="nursing" element={<NursingPage />} />
               <Route path="pharmacy" element={<PharmacyPage />} />
-              <Route path="lab" element={<LabPage />} />
               <Route path="billing" element={<BillingPage />} />
-              <Route path="psychology" element={<PsychologyPage />} />
               <Route path="visitors" element={<VisitorsPage />} />
-              <Route path="hr" element={<HrPage />} />
-              <Route path="attendance" element={<AttendancePage />} />
-              <Route path="payroll" element={<PayrollPage />} />
               <Route path="inventory" element={<InventoryPage />} />
               <Route path="kitchen" element={<KitchenPage />} />
-              <Route path="purchase" element={<PurchasePage />} />
-              <Route path="canteen" element={<CanteenPage />} />
-              <Route path="documents" element={<DocumentsPage />} />
-              <Route path="complaints" element={<ComplaintsPage />} />
-              <Route path="assets" element={<AssetsPage />} />
               <Route path="accounts" element={<AccountsPage />} />
               <Route path="users" element={<UsersPage />} />
-              <Route path="notifications" element={<NotificationsPage />} />
-              <Route path="tasks" element={<TasksPage />} />
-              <Route path="general-management" element={<GeneralManagementPage />} />
-              {MODULES.filter((m) => !REAL_MODULE_IDS.has(m.id)).map((m) => (
-                <Route
-                  key={m.id}
-                  path={m.path.replace('/app/', '')}
-                  element={<ModulePage />}
-                />
-              ))}
+              <Route path="management" element={<ManagementPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/login" replace />} />
           </Routes>

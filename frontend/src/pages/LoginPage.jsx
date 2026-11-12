@@ -3,25 +3,20 @@ import { Navigate, useNavigate } from 'react-router-dom'
 import { Eye, EyeOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '../context/AuthContext'
-import { MODULES } from '../data/modules'
+import { homePathForUser } from '../lib/roleHomes'
 import Button from '../components/ui/Button'
 import './pages.css'
 
 export default function LoginPage() {
   const { isAuthenticated, login, booting, user } = useAuth()
   const navigate = useNavigate()
-  const [email, setEmail] = useState('owner@jadeed.local')
-  const [password, setPassword] = useState('Owner@123')
+  const [email, setEmail] = useState('admin@jadeed.local')
+  const [password, setPassword] = useState('Admin@123')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
 
-  function homePath(modules = []) {
-    const allowed = new Set(modules)
-    return MODULES.find((m) => allowed.has(m.id))?.path || '/app'
-  }
-
   if (booting) return null
-  if (isAuthenticated) return <Navigate to={homePath(user?.modules)} replace />
+  if (isAuthenticated) return <Navigate to={homePathForUser(user)} replace />
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -29,7 +24,7 @@ export default function LoginPage() {
     try {
       const loggedInUser = await login({ email, password })
       toast.success(`Welcome, ${loggedInUser.name}`)
-      navigate(homePath(loggedInUser.modules), { replace: true })
+      navigate(homePathForUser(loggedInUser), { replace: true })
     } catch (err) {
       toast.error(err.message || 'Login failed')
     } finally {
