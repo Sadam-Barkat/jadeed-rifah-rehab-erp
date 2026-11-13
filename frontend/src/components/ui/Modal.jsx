@@ -20,8 +20,13 @@ export default function Modal({
     const onKey = (e) => {
       if (e.key === 'Escape') onClose?.()
     }
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prev
+      window.removeEventListener('keydown', onKey)
+    }
   }, [open, onClose])
 
   if (!open) return null
@@ -29,7 +34,7 @@ export default function Modal({
   return (
     <div className="ui-modal-overlay" role="presentation" onClick={onClose}>
       <div
-        className={`ui-modal ${size === 'lg' || size === 'xl' ? `ui-modal-${size}` : ''}`}
+        className={`ui-modal${size && size !== 'md' ? ` ui-modal-${size}` : ''}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}

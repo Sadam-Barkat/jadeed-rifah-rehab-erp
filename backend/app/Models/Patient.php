@@ -24,7 +24,10 @@ class Patient extends Model
         'blood_group',
         'marital_status',
         'referral_source',
+        'plan_days',
         'photo_path',
+        'cnic_front_path',
+        'cnic_back_path',
         'status',
         'created_by',
         'updated_by',
@@ -35,6 +38,7 @@ class Patient extends Model
         return [
             'date_of_birth' => 'date',
             'age' => 'integer',
+            'plan_days' => 'integer',
         ];
     }
 

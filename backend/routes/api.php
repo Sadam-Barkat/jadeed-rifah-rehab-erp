@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\MedicalRecordController;
 use App\Http\Controllers\Api\MedicineController;
 use App\Http\Controllers\Api\MedicineDispenseController;
 use App\Http\Controllers\Api\MedicineMovementController;
+use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\NursingNoteController;
 use App\Http\Controllers\Api\PatientController;
 use App\Http\Controllers\Api\PaymentController;
@@ -34,6 +35,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/me/account', [AuthController::class, 'updateAccount']);
     Route::post('/logout', [AuthController::class, 'logout']);
 
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+    Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
+    Route::post('/notifications/{notification}/read', [NotificationController::class, 'markRead']);
+
     Route::middleware('module:registration,patients,admission')->group(function () {
         Route::get('/patients/check-duplicate', [PatientController::class, 'checkDuplicate']);
         Route::get('/patients', [PatientController::class, 'index']);
@@ -46,9 +52,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/patients/{patient}', [PatientController::class, 'destroy']);
     });
 
+    Route::middleware('module:beds,admission,patients')->group(function () {
+        Route::get('/beds/available', [BedController::class, 'available']);
+    });
+
     Route::middleware('module:beds,admission')->group(function () {
         Route::get('/beds', [BedController::class, 'index']);
-        Route::get('/beds/available', [BedController::class, 'available']);
         Route::patch('/beds/{bed}/status', [BedController::class, 'updateStatus']);
     });
 
@@ -80,6 +89,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware('module:discharge,admission,patients')->group(function () {
         Route::get('/discharges', [DischargeController::class, 'index']);
+        Route::post('/discharges/request', [DischargeController::class, 'requestDischarge']);
         Route::post('/discharges', [DischargeController::class, 'store']);
         Route::get('/discharges/{discharge}', [DischargeController::class, 'show']);
     });
@@ -119,6 +129,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/invoices/{invoice}', [InvoiceController::class, 'show']);
         Route::get('/payments', [PaymentController::class, 'index']);
         Route::post('/payments', [PaymentController::class, 'store']);
+        Route::get('/payments/{payment}', [PaymentController::class, 'show']);
+    });
+
+    Route::middleware('admin')->group(function () {
+        Route::post('/payments/{payment}/approve', [PaymentController::class, 'approve']);
+        Route::post('/payments/{payment}/reject', [PaymentController::class, 'reject']);
     });
 
     Route::middleware('module:visitors,patients')->group(function () {
@@ -175,5 +191,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware('module:logs,settings,users')->group(function () {
         Route::get('/audit-logs', [AuditLogController::class, 'index']);
+        Route::get('/audit-logs/export', [AuditLogController::class, 'export']);
     });
 });

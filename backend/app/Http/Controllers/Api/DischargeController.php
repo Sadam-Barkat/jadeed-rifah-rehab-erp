@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Admission;
 use App\Models\Discharge;
 use App\Models\TreatmentPlan;
+use App\Services\AppNotifier;
 use App\Support\Audit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -41,6 +42,57 @@ class DischargeController extends Controller
                 'last_page' => $paginator->lastPage(),
                 'per_page' => $paginator->perPage(),
                 'total' => $paginator->total(),
+            ],
+        ]);
+    }
+
+    /** Doctor (or staff) requests discharge — Admin confirms later. */
+    public function requestDischarge(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'admission_id' => ['required', 'exists:admissions,id'],
+            'final_summary' => ['nullable', 'string'],
+        ]);
+
+        $admission = Admission::query()->with('patient')->findOrFail($data['admission_id']);
+
+        if ($admission->status !== 'active') {
+            return response()->json(['message' => 'Only active admissions can request discharge.'], 422);
+        }
+
+        if ($admission->patient?->status === 'discharge_requested') {
+            return response()->json(['message' => 'Discharge already requested for this patient.'], 422);
+        }
+
+        $admission->patient?->update([
+            'status' => 'discharge_requested',
+            'updated_by' => $request->user()->id,
+        ]);
+
+        if (! empty($data['final_summary'])) {
+            $admission->update([
+                'clinical_notes' => trim(($admission->clinical_notes ? $admission->clinical_notes."\n" : '').'Discharge request: '.$data['final_summary']),
+                'updated_by' => $request->user()->id,
+            ]);
+        }
+
+        Audit::log('discharge.request', 'discharge', 'admission', $admission->id, "Discharge requested for {$admission->admission_code}");
+
+        app(AppNotifier::class)->notifyRoleSlugs(
+            ['admin'],
+            'discharge.requested',
+            'Discharge request · '.$admission->patient?->patient_code,
+            ($admission->patient?->full_name ?: 'Patient').' — confirm discharge in Management.',
+            '/app/management?tab=patients',
+            ['patient_id' => $admission->patient_id, 'admission_id' => $admission->id],
+            $request->user()->id,
+        );
+
+        return response()->json([
+            'message' => 'Discharge requested. Waiting for admin confirmation.',
+            'data' => [
+                'admission_id' => $admission->id,
+                'patient_status' => 'discharge_requested',
             ],
         ]);
     }

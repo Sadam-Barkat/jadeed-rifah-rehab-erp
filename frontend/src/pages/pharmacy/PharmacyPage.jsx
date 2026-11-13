@@ -275,11 +275,16 @@ export default function PharmacyPage() {
   }
 
   return (
-    <div className="page">
-      <div className="page-header">
+    <div className="page print-page">
+      <div className="page-header no-print">
         <div>
           <p className="eyebrow">Clinical Support</p>
           <h2>Pharmacy</h2>
+        </div>
+        <div className="page-actions">
+          <Button type="button" variant="secondary" onClick={() => window.print()} disabled={loading}>
+            Print
+          </Button>
         </div>
       </div>
 
@@ -287,7 +292,12 @@ export default function PharmacyPage() {
         <SkeletonCards count={3} />
       ) : (
         <>
-          <form className="panel form-grid" onSubmit={handleAddMedicine}>
+          <header className="print-dash-head">
+            <p className="print-dash-org">Jadeed Rifah Rehab &amp; Care Center</p>
+            <h2>Pharmacy — Medicine stock</h2>
+          </header>
+
+          <form className="panel form-grid no-print" onSubmit={handleAddMedicine}>
             <div className="panel-head full">
               <h3>New medicine (stock in)</h3>
             </div>
@@ -360,7 +370,7 @@ export default function PharmacyPage() {
             </div>
           </form>
 
-          <form className="panel form-grid" onSubmit={handleStockIn}>
+          <form className="panel form-grid no-print" onSubmit={handleStockIn}>
             <div className="panel-head full">
               <h3>Stock in (existing medicine)</h3>
             </div>
@@ -408,7 +418,7 @@ export default function PharmacyPage() {
             </div>
           </form>
 
-          <form className="panel form-grid" onSubmit={handleDispense}>
+          <form className="panel form-grid no-print" onSubmit={handleDispense}>
             <div className="panel-head full">
               <h3>Dispense to patient (stock out)</h3>
             </div>
@@ -457,11 +467,11 @@ export default function PharmacyPage() {
             </div>
           </form>
 
-          <section className="panel">
+          <section className="panel print-stock-panel">
             <div className="panel-head">
               <h3>Medicine stock</h3>
             </div>
-            <div className="list-toolbar">
+            <div className="list-toolbar no-print">
               <input
                 className="ui-input"
                 type="search"
@@ -480,7 +490,7 @@ export default function PharmacyPage() {
             {medicines.length === 0 ? (
               <p className="panel-copy">No medicines in store.</p>
             ) : (
-              <div className="scroll-panel dash-scroll-panel">
+              <div className="scroll-panel dash-scroll-panel print-table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
@@ -514,7 +524,7 @@ export default function PharmacyPage() {
             )}
           </section>
 
-          <section className="panel">
+          <section className="panel no-print">
             <div className="panel-head">
               <h3>Stock in history</h3>
             </div>
@@ -565,7 +575,7 @@ export default function PharmacyPage() {
             )}
           </section>
 
-          <section className="panel">
+          <section className="panel no-print">
             <div className="panel-head">
               <h3>Patient dispenses</h3>
             </div>

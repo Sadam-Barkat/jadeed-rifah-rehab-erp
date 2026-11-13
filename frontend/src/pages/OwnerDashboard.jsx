@@ -44,6 +44,7 @@ export default function OwnerDashboard() {
       loading={loading}
       data={data}
       compact
+      enablePrint
       headerActions={
         <Link className="ui-btn ui-btn-primary ui-btn-md" to="/app/management">
           Management

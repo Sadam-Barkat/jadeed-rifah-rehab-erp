@@ -44,16 +44,26 @@ class UserController extends Controller
     {
         $perPage = min(max((int) $request->integer('per_page', 20), 1), 50);
 
-        $query = User::query()->with('role')->latest();
+        $query = User::query()
+            ->with('role')
+            ->whereHas('role', fn ($q) => $q->whereIn('slug', self::STAFF_ROLE_SLUGS))
+            ->latest();
 
         if ($request->has('is_active')) {
             $query->where('is_active', $request->boolean('is_active'));
+        }
+
+        if ($roleSlug = trim((string) $request->get('role', ''))) {
+            if (in_array($roleSlug, self::STAFF_ROLE_SLUGS, true)) {
+                $query->whereHas('role', fn ($q) => $q->where('slug', $roleSlug));
+            }
         }
 
         if ($search = trim((string) $request->get('search', ''))) {
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
                     ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('phone', 'like', "%{$search}%")
                     ->orWhere('staff_code', 'like', "%{$search}%");
             });
         }
@@ -76,6 +86,7 @@ class UserController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:150'],
             'email' => ['required', 'email', 'max:150', 'unique:users,email'],
+            'phone' => ['required', 'string', 'max:30'],
             'password' => ['nullable', 'string', 'min:8'],
             'role_id' => ['required', 'exists:roles,id'],
             'is_active' => ['nullable', 'boolean'],
@@ -99,7 +110,8 @@ class UserController extends Controller
             'staff_code' => $this->nextStaffCode($role->slug),
             'name' => $data['name'],
             'email' => $email,
-            'password' => $tempPassword,
+            'phone' => trim($data['phone']),
+            'password' => $tempPassword, // cast: hashed at rest; plaintext returned once only
             'role_id' => $role->id,
             'is_active' => $data['is_active'] ?? true,
             'must_change_password' => true,
@@ -110,11 +122,7 @@ class UserController extends Controller
         return response()->json([
             'message' => 'Staff created',
             'data' => $this->payload($user),
-            'credentials' => [
-                'staff_code' => $user->staff_code,
-                'email' => $user->email,
-                'temporary_password' => $tempPassword,
-            ],
+            'credentials' => $this->credentialsPayload($user, $tempPassword),
         ], 201);
     }
 
@@ -123,6 +131,7 @@ class UserController extends Controller
         $data = $request->validate([
             'name' => ['sometimes', 'required', 'string', 'max:150'],
             'email' => ['sometimes', 'required', 'email', 'max:150', Rule::unique('users', 'email')->ignore($user->id)],
+            'phone' => ['sometimes', 'required', 'string', 'max:30'],
             'password' => ['nullable', 'string', 'min:8'],
             'role_id' => ['sometimes', 'required', 'exists:roles,id'],
             'is_active' => ['nullable', 'boolean'],
@@ -132,6 +141,13 @@ class UserController extends Controller
 
         if ($request->user()->id === $user->id && array_key_exists('is_active', $data) && ! $data['is_active']) {
             return response()->json(['message' => 'You cannot deactivate your own account.'], 422);
+        }
+
+        if (array_key_exists('role_id', $data)) {
+            $role = Role::query()->findOrFail($data['role_id']);
+            if (! in_array($role->slug, self::STAFF_ROLE_SLUGS, true)) {
+                return response()->json(['message' => 'Invalid staff role.'], 422);
+            }
         }
 
         $tempPassword = null;
@@ -156,11 +172,7 @@ class UserController extends Controller
         ];
 
         if ($tempPassword) {
-            $response['credentials'] = [
-                'staff_code' => $user->staff_code,
-                'email' => $user->email,
-                'temporary_password' => $tempPassword,
-            ];
+            $response['credentials'] = $this->credentialsPayload($user, $tempPassword);
         }
 
         return response()->json($response);
@@ -189,6 +201,7 @@ class UserController extends Controller
             'staff_code' => $user->staff_code,
             'name' => $user->name,
             'email' => $user->email,
+            'phone' => $user->phone,
             'is_active' => (bool) $user->is_active,
             'must_change_password' => (bool) $user->must_change_password,
             'role' => [
@@ -196,6 +209,19 @@ class UserController extends Controller
                 'name' => $user->role?->name,
                 'slug' => $user->role?->slug,
             ],
+        ];
+    }
+
+    /** Plaintext password is returned only at create/regenerate time — never stored readable. */
+    private function credentialsPayload(User $user, string $plainPassword): array
+    {
+        return [
+            'name' => $user->name,
+            'staff_code' => $user->staff_code,
+            'email' => $user->email,
+            'phone' => $user->phone,
+            'temporary_password' => $plainPassword,
+            'one_time' => true,
         ];
     }
 

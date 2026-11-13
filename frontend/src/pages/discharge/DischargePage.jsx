@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
+import { useAuth } from '../../context/AuthContext'
 import Button from '../../components/ui/Button'
 import { SkeletonCards } from '../../components/ui/Skeleton'
 import '../pages.css'
@@ -16,11 +18,15 @@ const emptyForm = {
 }
 
 export default function DischargePage() {
+  const location = useLocation()
+  const { user } = useAuth()
+  const isAdmin = user?.role_slug === 'admin'
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [admissions, setAdmissions] = useState([])
   const [discharges, setDischarges] = useState([])
   const [form, setForm] = useState(emptyForm)
+  const backTo = location.state?.backTo
 
   function setField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -50,19 +56,30 @@ export default function DischargePage() {
     e.preventDefault()
     setSaving(true)
     try {
-      const data = await api('/discharges', {
-        method: 'POST',
-        body: {
-          admission_id: Number(form.admission_id),
-          final_summary: form.final_summary || null,
-          aftercare_instructions: form.aftercare_instructions || null,
-          follow_up_date: form.follow_up_date || null,
-          belongings_handover: form.belongings_handover || null,
-          family_handover: form.family_handover || null,
-          fee_clearance_notes: form.fee_clearance_notes || null,
-        },
-      })
-      toast.success(`Discharge ${data.data.discharge_code} completed`)
+      if (isAdmin) {
+        const data = await api('/discharges', {
+          method: 'POST',
+          body: {
+            admission_id: Number(form.admission_id),
+            final_summary: form.final_summary || null,
+            aftercare_instructions: form.aftercare_instructions || null,
+            follow_up_date: form.follow_up_date || null,
+            belongings_handover: form.belongings_handover || null,
+            family_handover: form.family_handover || null,
+            fee_clearance_notes: form.fee_clearance_notes || null,
+          },
+        })
+        toast.success(`Discharge ${data.data.discharge_code} completed`)
+      } else {
+        await api('/discharges/request', {
+          method: 'POST',
+          body: {
+            admission_id: Number(form.admission_id),
+            final_summary: form.final_summary || null,
+          },
+        })
+        toast.success('Discharge requested — waiting for admin')
+      }
       setForm(emptyForm)
       load()
     } catch (err) {
@@ -79,6 +96,11 @@ export default function DischargePage() {
           <p className="eyebrow">Patient Care</p>
           <h2>Discharge & Aftercare</h2>
         </div>
+        {backTo ? (
+          <div className="page-actions">
+            <Link className="ui-btn ui-btn-back ui-btn-md" to={backTo}>Back</Link>
+          </div>
+        ) : null}
       </div>
 
       {loading ? (
@@ -162,7 +184,7 @@ export default function DischargePage() {
 
             <div className="form-actions full">
               <Button type="submit" disabled={saving || !admissions.length}>
-                {saving ? 'Saving...' : 'Complete discharge'}
+                {saving ? 'Saving...' : isAdmin ? 'Confirm discharge' : 'Request discharge'}
               </Button>
             </div>
           </form>

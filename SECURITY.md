@@ -13,7 +13,7 @@ Update this file whenever a security item is implemented, partially applied, or 
 | 3 | Backend input validation | Done | AuthController login | Validate email/password |
 | 4 | SQL injection prevention (ORM/prepared) | Done | Eloquent queries | No raw unsafe SQL |
 | 5 | XSS prevention | Done | React UI (no raw HTML inject) | No `dangerouslySetInnerHTML` |
-| 6 | Password hashing | Done | User model cast + seeder | bcrypt hashed |
+| 6 | Password hashing | Done | User model cast + seeder | bcrypt hashed; plaintext only at create/regenerate (one-time UI) |
 | 7 | Secrets only in `.env` | Done | backend `.env` | DB/app secrets not in code |
 | 8 | Mass assignment protection | Done | User/Role fillable | Explicit fields only |
 | 9 | Upload security (type/size whitelist) | In Progress | Inventory bill upload (`SecureUpload`) | jpg/jpeg/png/webp/pdf, max 5MB; re-apply same pattern for other uploads |

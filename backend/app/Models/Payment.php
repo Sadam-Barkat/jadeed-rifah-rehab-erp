@@ -12,10 +12,16 @@ class Payment extends Model
         'invoice_id',
         'patient_id',
         'amount',
+        'installment_no',
         'method',
         'paid_at',
         'reference',
         'notes',
+        'proof_image_path',
+        'approval_status',
+        'approved_by',
+        'approved_at',
+        'rejection_reason',
         'created_by',
     ];
 
@@ -23,7 +29,9 @@ class Payment extends Model
     {
         return [
             'amount' => 'float',
+            'installment_no' => 'integer',
             'paid_at' => 'datetime',
+            'approved_at' => 'datetime',
         ];
     }
 
@@ -40,5 +48,10 @@ class Payment extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function approver(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
     }
 }

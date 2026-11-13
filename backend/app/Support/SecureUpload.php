@@ -9,8 +9,16 @@ class SecureUpload
 {
     public static function storeBillImage(UploadedFile $file, string $folder = 'bills'): string
     {
+        return self::storeImage($file, $folder, 'bill_');
+    }
+
+    public static function storeImage(UploadedFile $file, string $folder, string $prefix = 'img_'): string
+    {
         $ext = strtolower($file->getClientOriginalExtension() ?: 'jpg');
-        $name = $folder.'/'.now()->format('Y/m').'/'.uniqid('bill_', true).'.'.$ext;
+        if (! in_array($ext, ['jpg', 'jpeg', 'png', 'webp'], true)) {
+            $ext = 'jpg';
+        }
+        $name = $folder.'/'.now()->format('Y/m').'/'.uniqid($prefix, true).'.'.$ext;
 
         return $file->storeAs(dirname($name), basename($name), 'public');
     }

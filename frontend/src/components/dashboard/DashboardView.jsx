@@ -115,62 +115,64 @@ function DetailModal({ open, detail, onClose }) {
   const nameLabel = hasNameFilter ? String(columns[nameColIndex] || 'Name') : 'Name'
 
   return (
-    <Modal open={open} title={detail?.title || 'Details'} onClose={onClose} size="xl" hideFooter>
-      <div className="kpi-modal-toolbar">
-        <input
-          className="ui-input"
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search"
-          aria-label="Search"
-        />
-        {hasNameFilter && nameOptions.length > 1 ? (
-          <select
-            className="ui-select"
-            value={nameFilter}
-            onChange={(e) => setNameFilter(e.target.value)}
-            aria-label={`${nameLabel} filter`}
-          >
-            {nameOptions.map((opt) => (
-              <option key={`name-${opt}`} value={opt}>
-                {opt === 'all' ? `All ${nameLabel.toLowerCase()}s` : opt}
-              </option>
-            ))}
-          </select>
-        ) : null}
-        {typeOptions.length > 1 ? (
-          <select
-            className="ui-select"
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
-            aria-label="Filter"
-          >
-            {typeOptions.map((opt) => (
-              <option key={`type-${opt}`} value={opt}>
-                {opt === 'all'
-                  ? (staffColIndex === resolvedFilterCol ? 'All staff' : 'All')
-                  : opt}
-              </option>
-            ))}
-          </select>
-        ) : null}
-        {hasStaffFilter && staffOptions.length > 1 ? (
-          <select
-            className="ui-select"
-            value={staffFilter}
-            onChange={(e) => setStaffFilter(e.target.value)}
-            aria-label="Staff filter"
-          >
-            {staffOptions.map((opt) => (
-              <option key={`staff-${opt}`} value={opt}>
-                {opt === 'all' ? 'All staff' : opt}
-              </option>
-            ))}
-          </select>
-        ) : null}
+    <Modal open={open} title={detail?.title || 'Details'} onClose={onClose} size="md" hideFooter>
+      <div className="kpi-modal-sticky">
+        <div className="kpi-modal-toolbar">
+          <input
+            className="ui-input"
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search"
+            aria-label="Search"
+          />
+          {hasNameFilter && nameOptions.length > 1 ? (
+            <select
+              className="ui-select"
+              value={nameFilter}
+              onChange={(e) => setNameFilter(e.target.value)}
+              aria-label={`${nameLabel} filter`}
+            >
+              {nameOptions.map((opt) => (
+                <option key={`name-${opt}`} value={opt}>
+                  {opt === 'all' ? `All ${nameLabel.toLowerCase()}s` : opt}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          {typeOptions.length > 1 ? (
+            <select
+              className="ui-select"
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              aria-label="Filter"
+            >
+              {typeOptions.map((opt) => (
+                <option key={`type-${opt}`} value={opt}>
+                  {opt === 'all'
+                    ? (staffColIndex === resolvedFilterCol ? 'All staff' : 'All')
+                    : opt}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          {hasStaffFilter && staffOptions.length > 1 ? (
+            <select
+              className="ui-select"
+              value={staffFilter}
+              onChange={(e) => setStaffFilter(e.target.value)}
+              aria-label="Staff filter"
+            >
+              {staffOptions.map((opt) => (
+                <option key={`staff-${opt}`} value={opt}>
+                  {opt === 'all' ? 'All staff' : opt}
+                </option>
+              ))}
+            </select>
+          ) : null}
+        </div>
+        <p className="panel-meta kpi-modal-count">{rows.length} row(s)</p>
       </div>
-      <p className="panel-meta kpi-modal-count">{rows.length} row(s)</p>
       {rows.length === 0 ? (
         <p className="panel-copy">No rows</p>
       ) : (
@@ -216,6 +218,7 @@ export default function DashboardView({
   compact = false,
   showStaffFilter = false,
   staffOptions = [],
+  enablePrint = false,
 }) {
   const [activeDetail, setActiveDetail] = useState(null)
   const kpis = data?.kpis || []
@@ -223,30 +226,51 @@ export default function DashboardView({
   const charts = data?.charts || []
   const cardMode = data?.card_mode || (data?.section === 'overview' ? 'tooltip' : 'modal')
   const enableStaff = showStaffFilter || !!data?.staff_filter
+  const rangeLabel =
+    filter?.from && filter?.to ? `${filter.from} → ${filter.to}` : ''
 
   return (
-    <div className={`page dash-page ${compact ? 'dash-compact' : ''}`}>
-      <div className="page-header dash-header">
+    <div className={`page dash-page ${compact ? 'dash-compact' : ''} ${enablePrint ? 'print-page' : ''}`}>
+      <div className="page-header dash-header no-print">
         <div>
           <p className="eyebrow">{eyebrow}</p>
           <h2>{title}</h2>
         </div>
-        <div className="page-actions dash-header-actions">
-          <DateRangeFilter
-            value={filter}
-            onApply={onFilterApply}
-            loading={loading}
-            showStaff={enableStaff}
-            staffOptions={staffOptions}
-          />
+        <div className="page-actions">
+          {enablePrint ? (
+            <button
+              type="button"
+              className="ui-btn ui-btn-secondary ui-btn-md"
+              onClick={() => window.print()}
+              disabled={loading || !data}
+            >
+              Print
+            </button>
+          ) : null}
           {headerActions}
         </div>
+      </div>
+
+      <div className="dash-filter-row no-print">
+        <DateRangeFilter
+          value={filter}
+          onApply={onFilterApply}
+          loading={loading}
+          showStaff={enableStaff}
+          staffOptions={staffOptions}
+        />
       </div>
 
       {loading || !data ? (
         <SkeletonCards count={8} />
       ) : (
-        <>
+        <div className="print-dash-sheet">
+          <header className="print-dash-head">
+            <p className="print-dash-org">Jadeed Rifah Rehab &amp; Care Center</p>
+            <h2>{title}</h2>
+            {rangeLabel ? <p>{rangeLabel}</p> : null}
+          </header>
+
           <div className={`stat-grid ${kpis.length >= 8 ? 'stat-grid-4' : kpis.length <= 4 ? 'stat-grid-4' : ''}`}>
             {kpis.map((kpi) => {
               const clickable = cardMode === 'modal' && kpi.detail
@@ -299,7 +323,7 @@ export default function DashboardView({
           ) : null}
 
           {showLinks ? (
-            <section className="panel">
+            <section className="panel no-print">
               <div className="panel-head">
                 <h3>Quick actions</h3>
               </div>
@@ -312,7 +336,7 @@ export default function DashboardView({
               </div>
             </section>
           ) : null}
-        </>
+        </div>
       )}
 
       <DetailModal open={!!activeDetail} detail={activeDetail} onClose={() => setActiveDetail(null)} />

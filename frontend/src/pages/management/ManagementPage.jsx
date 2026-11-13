@@ -1,5 +1,4 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import UsersPage from '../users/UsersPage'
 import PatientsPage from '../patients/PatientsPage'
 import '../pages.css'
@@ -10,7 +9,12 @@ const TABS = [
 ]
 
 export default function ManagementPage() {
-  const [tab, setTab] = useState('staff')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = searchParams.get('tab') === 'patients' ? 'patients' : 'staff'
+
+  function setTab(next) {
+    setSearchParams(next === 'patients' ? { tab: 'patients' } : {}, { replace: true })
+  }
 
   return (
     <div className="page">
@@ -18,19 +22,15 @@ export default function ManagementPage() {
         <div>
           <p className="eyebrow">Admin</p>
           <h2>Management</h2>
-          <p className="panel-copy">Manage staff accounts and patients in one place.</p>
         </div>
         <div className="page-actions">
-          <Link className="ui-btn ui-btn-ghost ui-btn-md" to="/app/owner-dashboard">
-            Dashboard
-          </Link>
-          <Link className="ui-btn ui-btn-secondary ui-btn-md" to="/app/settings">
-            Settings
+          <Link className="ui-btn ui-btn-back ui-btn-md" to="/app/owner-dashboard">
+            Back
           </Link>
         </div>
       </div>
 
-      <div className="mgmt-tabs" role="tablist" aria-label="Management">
+      <div className="mgmt-tabs mgmt-tabs-sticky" role="tablist" aria-label="Management">
         {TABS.map((item) => (
           <button
             key={item.id}

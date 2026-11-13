@@ -1720,8 +1720,11 @@ class ReportController extends Controller
 
     private function financeDashboard(Carbon $from, Carbon $to): array
     {
-        $collection = (float) Payment::query()->whereBetween('paid_at', [$from, $to])->sum('amount');
-        $payments = Payment::query()->whereBetween('paid_at', [$from, $to])->count();
+        $approvedPay = Payment::query()->where('approval_status', 'approved');
+        $collection = (float) (clone $approvedPay)->whereBetween('paid_at', [$from, $to])->sum('amount');
+        $payments = (clone $approvedPay)->whereBetween('paid_at', [$from, $to])->count();
+        $pendingPayments = Payment::query()->where('approval_status', 'pending')->count();
+        $pendingAmount = (float) Payment::query()->where('approval_status', 'pending')->sum('amount');
         $outstanding = (float) Invoice::query()->whereIn('status', ['unpaid', 'partial'])->sum('balance');
         $open = Invoice::query()->whereIn('status', ['unpaid', 'partial'])->count();
         $income = (float) AccountEntry::query()
@@ -1741,9 +1744,17 @@ class ReportController extends Controller
             ->get();
 
         $paymentRows = Payment::query()
+            ->where('approval_status', 'approved')
             ->whereBetween('paid_at', [$from, $to])
             ->latest('paid_at')
             ->limit(100)
+            ->get();
+
+        $pendingRows = Payment::query()
+            ->with('patient:id,first_name,last_name,patient_code')
+            ->where('approval_status', 'pending')
+            ->latest('id')
+            ->limit(50)
             ->get();
 
         $ledger = AccountEntry::query()
@@ -1756,20 +1767,35 @@ class ReportController extends Controller
         return [
             'title' => 'Finance dashboard',
             'kpis' => [
-                ['key' => 'collection', 'label' => 'Collection', 'value' => $collection, 'money' => true, 'meta' => "{$payments} payment(s)", 'tone' => 'green'],
+                ['key' => 'collection', 'label' => 'Approved collection', 'value' => $collection, 'money' => true, 'meta' => "{$payments} payment(s)", 'tone' => 'green'],
+                ['key' => 'pending', 'label' => 'Pending approval', 'value' => $pendingAmount, 'money' => true, 'meta' => "{$pendingPayments} request(s)", 'tone' => 'orange'],
                 ['key' => 'outstanding', 'label' => 'Outstanding', 'value' => $outstanding, 'money' => true, 'meta' => "{$open} invoice(s)", 'tone' => 'orange'],
                 ['key' => 'income', 'label' => 'Ledger income', 'value' => $income, 'money' => true, 'meta' => 'Selected range', 'tone' => 'blue'],
-                ['key' => 'expense', 'label' => 'Ledger expense', 'value' => $expense, 'money' => true, 'meta' => 'Selected range', 'tone' => 'purple'],
             ],
             'charts' => [
                 [
                     'id' => 'collection',
-                    'title' => 'Collection trend (PKR)',
+                    'title' => 'Approved collection trend (PKR)',
                     'type' => 'bar',
-                    'series' => $this->sumSeries(Payment::query(), 'paid_at', 'amount', $from, $to),
+                    'series' => $this->sumSeries(Payment::query()->where('approval_status', 'approved'), 'paid_at', 'amount', $from, $to),
                 ],
             ],
             'tables' => [
+                [
+                    'title' => 'Pending fee requests',
+                    'total' => $pendingRows->count(),
+                    'columns' => ['Code', 'Patient', 'Amount', 'Method'],
+                    'rows' => $pendingRows->map(function (Payment $p) {
+                        $name = trim(($p->patient?->patient_code ?? '').' '.($p->patient?->first_name ?? '').' '.($p->patient?->last_name ?? ''));
+
+                        return [
+                            $p->payment_code,
+                            $name !== '' ? $name : '—',
+                            number_format((float) $p->amount, 0),
+                            $p->method ?? '—',
+                        ];
+                    })->values()->all(),
+                ],
                 [
                     'title' => 'Invoices',
                     'total' => $invoices->count(),
@@ -1787,7 +1813,7 @@ class ReportController extends Controller
                     })->values()->all(),
                 ],
                 [
-                    'title' => 'Payments in range',
+                    'title' => 'Approved payments in range',
                     'total' => $paymentRows->count(),
                     'columns' => ['Code', 'Amount', 'Method', 'Paid at'],
                     'rows' => $paymentRows->map(fn (Payment $p) => [

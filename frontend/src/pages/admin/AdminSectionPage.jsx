@@ -6,6 +6,7 @@ import { defaultRange } from '../../components/dashboard/DateRangeFilter'
 import '../pages.css'
 
 const STAFF_SECTIONS = new Set(['pharmacy', 'inventory'])
+const PRINT_SECTIONS = new Set(['pharmacy', 'inventory'])
 
 export default function AdminSectionPage({ section, fallbackTitle }) {
   const [filter, setFilter] = useState(defaultRange)
@@ -77,6 +78,7 @@ export default function AdminSectionPage({ section, fallbackTitle }) {
       loading={loading}
       data={data}
       compact
+      enablePrint={PRINT_SECTIONS.has(section)}
       showStaffFilter={showStaff}
       staffOptions={staffOptions}
     />

@@ -306,11 +306,16 @@ export default function InventoryPage() {
   const bedsActionMode = isBedsItem && isOut
 
   return (
-    <div className="page">
-      <div className="page-header">
+    <div className="page print-page">
+      <div className="page-header no-print">
         <div>
           <p className="eyebrow">Operations</p>
           <h2>Inventory & Stock</h2>
+        </div>
+        <div className="page-actions">
+          <Button type="button" variant="secondary" onClick={() => window.print()} disabled={loading}>
+            Print
+          </Button>
         </div>
       </div>
 
@@ -318,7 +323,12 @@ export default function InventoryPage() {
         <SkeletonCards count={3} />
       ) : (
         <>
-          <form className="panel form-grid" onSubmit={handleAddItem}>
+          <header className="print-dash-head">
+            <p className="print-dash-org">Jadeed Rifah Rehab &amp; Care Center</p>
+            <h2>Inventory — Stock list</h2>
+          </header>
+
+          <form className="panel form-grid no-print" onSubmit={handleAddItem}>
             <div className="panel-head full">
               <h3>Add item</h3>
             </div>
@@ -369,7 +379,7 @@ export default function InventoryPage() {
             </div>
           </form>
 
-          <form className="panel form-grid" onSubmit={handleMove}>
+          <form className="panel form-grid no-print" onSubmit={handleMove}>
             <div className="panel-head full">
               <h3>{isBedsItem ? 'Beds stock / maintenance' : 'Stock in / out'}</h3>
             </div>
@@ -532,11 +542,11 @@ export default function InventoryPage() {
             </div>
           </form>
 
-          <section className="panel">
+          <section className="panel print-stock-panel">
             <div className="panel-head">
               <h3>Stock list</h3>
             </div>
-            <div className="list-toolbar">
+            <div className="list-toolbar no-print">
               <input
                 className="ui-input"
                 type="search"
@@ -549,7 +559,7 @@ export default function InventoryPage() {
             {filteredItems.length === 0 ? (
               <p className="panel-copy">No inventory items yet.</p>
             ) : (
-              <div className="scroll-panel dash-scroll-panel">
+              <div className="scroll-panel dash-scroll-panel print-table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
@@ -587,7 +597,7 @@ export default function InventoryPage() {
             )}
           </section>
 
-          <section className="panel">
+          <section className="panel no-print">
             <div className="panel-head">
               <h3>Stock movements</h3>
             </div>

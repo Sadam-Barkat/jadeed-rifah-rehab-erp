@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
 import { formatPkr } from '../../lib/format'
@@ -19,6 +20,7 @@ const emptyPayment = {
   method: 'cash',
   reference: '',
   notes: '',
+  proof_image: null,
 }
 
 const PAY_METHODS = [
@@ -26,6 +28,15 @@ const PAY_METHODS = [
   { value: 'card', label: 'Card' },
   { value: 'online', label: 'Online' },
   { value: 'bank', label: 'Bank' },
+  { value: 'jazzcash', label: 'JazzCash' },
+  { value: 'easypaisa', label: 'Easypaisa' },
+]
+
+const PAY_TABS = [
+  { id: '', label: 'All' },
+  { id: 'pending', label: 'Pending' },
+  { id: 'approved', label: 'Approved' },
+  { id: 'rejected', label: 'Rejected' },
 ]
 
 export default function BillingPage() {
@@ -36,6 +47,7 @@ export default function BillingPage() {
   const [admissions, setAdmissions] = useState([])
   const [invoices, setInvoices] = useState([])
   const [payments, setPayments] = useState([])
+  const [payTab, setPayTab] = useState('pending')
   const [invoiceForm, setInvoiceForm] = useState(emptyInvoice)
   const [paymentForm, setPaymentForm] = useState(emptyPayment)
 
@@ -50,11 +62,14 @@ export default function BillingPage() {
   async function load() {
     setLoading(true)
     try {
+      const payQ = new URLSearchParams({ per_page: '50' })
+      if (payTab) payQ.set('approval_status', payTab)
+
       const [pkgRes, admRes, invRes, payRes] = await Promise.all([
         api('/fee-packages?status=active'),
         api('/admissions?per_page=50'),
-        api('/invoices?due_only=1&per_page=50'),
-        api('/payments?per_page=50'),
+        api('/invoices?per_page=50'),
+        api(`/payments?${payQ}`),
       ])
       setPackages(pkgRes.data || [])
       setAdmissions(admRes.data || [])
@@ -69,9 +84,14 @@ export default function BillingPage() {
 
   useEffect(() => {
     load()
-  }, [])
+  }, [payTab])
 
-  const openInvoices = invoices.filter((i) => i.status === 'unpaid' || i.status === 'partial')
+  const openInvoices = useMemo(
+    () => invoices.filter((i) => i.status === 'unpaid' || i.status === 'partial'),
+    [invoices]
+  )
+
+  const selectedInvoice = openInvoices.find((i) => String(i.id) === String(paymentForm.invoice_id))
 
   async function handleCreateInvoice(e) {
     e.preventDefault()
@@ -98,20 +118,27 @@ export default function BillingPage() {
 
   async function handlePayment(e) {
     e.preventDefault()
+    if (!paymentForm.proof_image) {
+      toast.error('Payment proof image is required')
+      return
+    }
     setSavingPayment(true)
     try {
+      const fd = new FormData()
+      fd.append('invoice_id', String(Number(paymentForm.invoice_id)))
+      fd.append('amount', String(Number(paymentForm.amount)))
+      fd.append('method', paymentForm.method)
+      if (paymentForm.reference) fd.append('reference', paymentForm.reference)
+      if (paymentForm.notes) fd.append('notes', paymentForm.notes)
+      fd.append('proof_image', paymentForm.proof_image)
+
       const data = await api('/payments', {
         method: 'POST',
-        body: {
-          invoice_id: Number(paymentForm.invoice_id),
-          amount: Number(paymentForm.amount),
-          method: paymentForm.method,
-          reference: paymentForm.reference || null,
-          notes: paymentForm.notes || null,
-        },
+        body: fd,
       })
-      toast.success(`Payment ${data.data.payment_code} recorded`)
+      toast.success(data.message || 'Sent for admin approval')
       setPaymentForm(emptyPayment)
+      setPayTab('pending')
       load()
     } catch (err) {
       toast.error(err.message || 'Payment failed')
@@ -125,7 +152,12 @@ export default function BillingPage() {
       <div className="page-header">
         <div>
           <p className="eyebrow">Finance</p>
-          <h2>Patient Fee & Billing</h2>
+          <h2>Fees & payments</h2>
+        </div>
+        <div className="page-actions">
+          <Link className="ui-btn ui-btn-ghost ui-btn-md" to="/app/home/finance">
+            Dashboard
+          </Link>
         </div>
       </div>
 
@@ -133,6 +165,21 @@ export default function BillingPage() {
         <SkeletonCards count={3} />
       ) : (
         <>
+          <div className="stat-grid">
+            <article className="stat-card">
+              <p>Open invoices</p>
+              <strong>{openInvoices.length}</strong>
+            </article>
+            <article className="stat-card">
+              <p>Outstanding</p>
+              <strong>{formatPkr(openInvoices.reduce((s, i) => s + Number(i.balance || 0), 0))}</strong>
+            </article>
+            <article className="stat-card">
+              <p>Pending requests</p>
+              <strong>{payments.filter((p) => p.approval_status === 'pending').length || (payTab === 'pending' ? payments.length : '—')}</strong>
+            </article>
+          </div>
+
           <section className="panel">
             <div className="panel-head">
               <h3>Fee packages</h3>
@@ -140,7 +187,7 @@ export default function BillingPage() {
             {packages.length === 0 ? (
               <p className="panel-copy">No packages configured.</p>
             ) : (
-              <div className="table-wrap">
+              <div className="table-wrap scroll-panel">
                 <table className="data-table">
                   <thead>
                     <tr>
@@ -230,7 +277,7 @@ export default function BillingPage() {
 
           <form className="panel form-grid" onSubmit={handlePayment}>
             <div className="panel-head full">
-              <h3>Record payment</h3>
+              <h3>Submit fee / installment</h3>
             </div>
             <div className="ui-field">
               <label htmlFor="invoice_id">Open invoice</label>
@@ -266,6 +313,9 @@ export default function BillingPage() {
                 value={paymentForm.amount}
                 onChange={(e) => setPay('amount', e.target.value)}
               />
+              {selectedInvoice ? (
+                <p className="field-note">Balance {formatPkr(selectedInvoice.balance)} — partial = installment</p>
+              ) : null}
             </div>
             <div className="ui-field">
               <label htmlFor="method">Method</label>
@@ -289,9 +339,31 @@ export default function BillingPage() {
                 onChange={(e) => setPay('reference', e.target.value)}
               />
             </div>
+            <div className="ui-field">
+              <label htmlFor="proof_image">
+                {paymentForm.method === 'cash' ? 'Cash proof image' : 'Payment screenshot'}
+              </label>
+              <input
+                id="proof_image"
+                className="ui-input"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                required
+                onChange={(e) => setPay('proof_image', e.target.files?.[0] || null)}
+              />
+            </div>
+            <div className="ui-field full">
+              <label htmlFor="pay_notes">Notes</label>
+              <input
+                id="pay_notes"
+                className="ui-input"
+                value={paymentForm.notes}
+                onChange={(e) => setPay('notes', e.target.value)}
+              />
+            </div>
             <div className="form-actions full">
               <Button type="submit" disabled={savingPayment || !openInvoices.length}>
-                {savingPayment ? 'Saving...' : 'Record payment'}
+                {savingPayment ? 'Sending…' : 'Send for admin approval'}
               </Button>
             </div>
           </form>
@@ -303,7 +375,7 @@ export default function BillingPage() {
             {invoices.length === 0 ? (
               <p className="panel-copy">No invoices yet.</p>
             ) : (
-              <div className="table-wrap">
+              <div className="table-wrap scroll-panel">
                 <table className="data-table">
                   <thead>
                     <tr>
@@ -340,38 +412,58 @@ export default function BillingPage() {
 
           <section className="panel">
             <div className="panel-head">
-              <h3>Recent payments</h3>
+              <h3>Payment requests</h3>
+            </div>
+            <div className="filter-tabs" role="tablist" aria-label="Payment status">
+              {PAY_TABS.map((tab) => (
+                <button
+                  key={tab.id || 'all'}
+                  type="button"
+                  className={`filter-tab ${payTab === tab.id ? 'is-active' : ''}`}
+                  onClick={() => setPayTab(tab.id)}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
             {payments.length === 0 ? (
-              <p className="panel-copy">No payments yet.</p>
+              <p className="panel-copy">No payments in this list.</p>
             ) : (
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Code</th>
-                      <th>Invoice</th>
-                      <th>Patient</th>
-                      <th>Amount</th>
-                      <th>Method</th>
-                      <th>When</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {payments.map((p) => (
-                      <tr key={p.id}>
-                        <td>{p.payment_code}</td>
-                        <td>{p.invoice?.invoice_code}</td>
-                        <td>
-                          {p.patient?.patient_code} · {p.patient?.full_name}
-                        </td>
-                        <td>{formatPkr(p.amount)}</td>
-                        <td>{p.method}</td>
-                        <td>{p.paid_at}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="entity-card-grid scroll-panel dash-scroll-panel">
+                {payments.map((p) => (
+                  <article key={p.id} className="entity-card">
+                    <div className="entity-card-top">
+                      <div>
+                        <p className="entity-card-code">{p.payment_code}</p>
+                        <h3>{formatPkr(p.amount)}</h3>
+                      </div>
+                      <span className="badge">{p.approval_status}</span>
+                    </div>
+                    <dl className="entity-card-meta">
+                      <div>
+                        <dt>Patient</dt>
+                        <dd>{p.patient?.full_name || '—'}</dd>
+                      </div>
+                      <div>
+                        <dt>Invoice</dt>
+                        <dd>{p.invoice?.invoice_code || '—'}</dd>
+                      </div>
+                      <div>
+                        <dt>Installment</dt>
+                        <dd>#{p.installment_no || '—'}</dd>
+                      </div>
+                      <div>
+                        <dt>Method</dt>
+                        <dd>{p.method || '—'}</dd>
+                      </div>
+                    </dl>
+                    <div className="entity-card-actions">
+                      <Link className="ui-btn ui-btn-secondary ui-btn-sm" to={`/app/payments/${p.id}`}>
+                        View
+                      </Link>
+                    </div>
+                  </article>
+                ))}
               </div>
             )}
           </section>

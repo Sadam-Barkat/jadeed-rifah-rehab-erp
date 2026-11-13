@@ -24,6 +24,10 @@ class RoleUserSeeder extends Seeder
             'settings',
             'logs',
             'patients',
+            'registration',
+            'admission',
+            'discharge',
+            'billing',
         ];
 
         $roleModules = [

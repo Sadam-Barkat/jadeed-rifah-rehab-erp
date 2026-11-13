@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
 import Button from '../../components/ui/Button'
@@ -16,12 +17,18 @@ const emptyForm = {
 }
 
 export default function AdmissionPage() {
+  const location = useLocation()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [patients, setPatients] = useState([])
   const [beds, setBeds] = useState([])
   const [admissions, setAdmissions] = useState([])
-  const [form, setForm] = useState(emptyForm)
+  const [form, setForm] = useState(() => ({
+    ...emptyForm,
+    patient_id: location.state?.patientId ? String(location.state.patientId) : '',
+    program_days: location.state?.planDays ? String(location.state.planDays) : '30',
+  }))
+  const backTo = location.state?.backTo
 
   function setField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -83,6 +90,11 @@ export default function AdmissionPage() {
           <p className="eyebrow">Patient Care</p>
           <h2>Patient Admission</h2>
         </div>
+        {backTo ? (
+          <div className="page-actions">
+            <Link className="ui-btn ui-btn-back ui-btn-md" to={backTo}>Back</Link>
+          </div>
+        ) : null}
       </div>
 
       {loading ? (

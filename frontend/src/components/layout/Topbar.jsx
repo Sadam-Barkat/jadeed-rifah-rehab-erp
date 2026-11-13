@@ -1,6 +1,7 @@
 import { Menu, LogOut } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import Button from '../ui/Button'
+import NotificationBell from './NotificationBell'
 import './layout.css'
 
 export default function Topbar({ onMenuToggle, onLogoutClick }) {
@@ -25,6 +26,7 @@ export default function Topbar({ onMenuToggle, onLogoutClick }) {
       </div>
 
       <div className="topbar-right">
+        <NotificationBell />
         <div className="user-chip">
           <strong>{user?.name}</strong>
           <span>{user?.role}</span>

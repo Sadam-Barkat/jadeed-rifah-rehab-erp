@@ -12,8 +12,8 @@ Update this file whenever optimization work is applied or skipped.
 | 4 | Database indexing | Done | patients + clinical + ops + audit_logs | audit action/module/created_at indexes |
 | 5 | Slim API responses | Done | PatientController + ReportController | overview aggregates only needed KPIs |
 | 8 | Avoid N+1 queries (Laravel eager load) | Done | Patient + DoctorRound index | doctor/patient/admission eager load |
-| 13 | Inner scroll for growing lists | In Progress | Visitors + Staff + Patients + Inventory + Pharmacy + dashboard tables | `.scroll-panel` / `.dash-scroll-panel` on overview tables too |
-| 14 | Search on expandable lists | In Progress | Visitors + Staff + Patients + Inventory + Pharmacy | Debounced search + staff/movement filters |
+| 13 | Inner scroll for growing lists | In Progress | Visitors + Staff + Patients + Inventory + Pharmacy + dashboard + Management cards | `.entity-card-grid` scroll + pagination (12/page) |
+| 14 | Search on expandable lists | In Progress | Visitors + Staff + Patients + Inventory + Pharmacy + Management | Debounced search + role/status filter tabs |
 
 ## Should (light alongside, deep polish later)
 
