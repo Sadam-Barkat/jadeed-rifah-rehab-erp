@@ -3,6 +3,7 @@ import { Navigate, Outlet } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useAuth } from '../../context/AuthContext'
 import Modal from '../ui/Modal'
+import RoleTopNav from './RoleTopNav'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
 import './layout.css'
@@ -10,7 +11,8 @@ import './layout.css'
 const COLLAPSE_KEY = 'jadeed_sidebar_collapsed'
 
 export default function AppLayout() {
-  const { isAuthenticated, logout, booting } = useAuth()
+  const { isAuthenticated, logout, booting, user } = useAuth()
+  const isAdmin = user?.role_slug === 'admin'
   const [mobileOpen, setMobileOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -31,6 +33,35 @@ export default function AppLayout() {
 
   if (booting) return null
   if (!isAuthenticated) return <Navigate to="/login" replace />
+
+  if (!isAdmin) {
+    return (
+      <div className="app-shell role-shell">
+        <RoleTopNav onLogoutClick={() => setLogoutOpen(true)} />
+        <main className="app-content role-content">
+          <Outlet />
+        </main>
+
+        <Modal
+          open={logoutOpen}
+          title="Sign out"
+          size="sm"
+          confirm
+          cancelLabel="Cancel"
+          confirmLabel="Sign out"
+          danger
+          onClose={() => setLogoutOpen(false)}
+          onConfirm={async () => {
+            await logout()
+            setLogoutOpen(false)
+            toast.success('Signed out')
+          }}
+        >
+          You will be signed out of this device.
+        </Modal>
+      </div>
+    )
+  }
 
   return (
     <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>

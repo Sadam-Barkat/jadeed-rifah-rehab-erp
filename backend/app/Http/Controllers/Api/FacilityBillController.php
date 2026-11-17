@@ -41,12 +41,38 @@ class FacilityBillController extends Controller
             $query->whereDate('bill_date', '<=', $to);
         }
 
+        $date = trim((string) $request->get('date', ''));
+        $year = $request->integer('year') ?: null;
+        $month = $request->integer('month') ?: null;
+        if ($date !== '') {
+            $query->whereDate('bill_date', $date);
+        } else {
+            if ($year) {
+                $query->whereYear('bill_date', $year);
+            }
+            if ($month && $month >= 1 && $month <= 12) {
+                $query->whereMonth('bill_date', $month);
+            }
+        }
+
         if ($search = trim((string) $request->get('q', $request->get('search', '')))) {
-            $query->where(function ($q) use ($search) {
-                $q->where('bill_code', 'like', "%{$search}%")
-                    ->orWhere('bill_type', 'like', "%{$search}%")
-                    ->orWhere('reference', 'like', "%{$search}%")
-                    ->orWhere('notes', 'like', "%{$search}%");
+            $like = "%{$search}%";
+            $query->where(function ($q) use ($like, $search) {
+                $q->where('bill_code', 'like', $like)
+                    ->orWhere('bill_type', 'like', $like)
+                    ->orWhere('reference', 'like', $like)
+                    ->orWhere('notes', 'like', $like)
+                    ->orWhere('payment_method', 'like', $like)
+                    ->orWhere('status', 'like', $like)
+                    ->orWhere('void_reason', 'like', $like)
+                    ->orWhereDate('bill_date', $search)
+                    ->orWhere('bill_date', 'like', $like)
+                    ->orWhereRaw('CAST(amount AS CHAR) LIKE ?', [$like])
+                    ->orWhereHas('creator', function ($u) use ($like) {
+                        $u->where('name', 'like', $like)
+                            ->orWhere('staff_code', 'like', $like)
+                            ->orWhere('email', 'like', $like);
+                    });
             });
         }
 
@@ -59,12 +85,33 @@ class FacilityBillController extends Controller
         if ($to) {
             $summaryBase->whereDate('bill_date', '<=', $to);
         }
+        if ($date !== '') {
+            $summaryBase->whereDate('bill_date', $date);
+        } else {
+            if ($year) {
+                $summaryBase->whereYear('bill_date', $year);
+            }
+            if ($month && $month >= 1 && $month <= 12) {
+                $summaryBase->whereMonth('bill_date', $month);
+            }
+        }
         if ($createdBy) {
             $summaryBase->where('created_by', $createdBy);
         }
         if ($billType) {
             $summaryBase->where('bill_type', $billType);
         }
+
+        $availableYears = FacilityBill::query()
+            ->where('status', 'posted')
+            ->whereNotNull('bill_date')
+            ->selectRaw('DISTINCT YEAR(bill_date) as y')
+            ->orderByDesc('y')
+            ->pluck('y')
+            ->filter()
+            ->map(fn ($y) => (int) $y)
+            ->values()
+            ->all();
 
         return response()->json([
             'data' => collect($paginator->items())->map(fn (FacilityBill $b) => $this->payload($b)),
@@ -73,6 +120,7 @@ class FacilityBillController extends Controller
                 'last_page' => $paginator->lastPage(),
                 'per_page' => $paginator->perPage(),
                 'total' => $paginator->total(),
+                'available_years' => $availableYears,
                 'bill_types' => collect(FacilityBill::TYPES)
                     ->merge(
                         FacilityBill::query()

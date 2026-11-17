@@ -209,6 +209,349 @@
   max-width: 42px;
 }
 
+.role-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.role-shell .role-content {
+  flex: 1;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.role-nav {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-5);
+  background: #0f2744;
+  color: #edf4ff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.role-nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.role-nav-logo {
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  background: #fff;
+  padding: 3px;
+}
+
+.role-nav-brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.role-nav-brand-text strong {
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.role-nav-brand-text span {
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
+.role-nav-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1;
+  justify-content: center;
+}
+
+.role-nav-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: rgba(237, 244, 255, 0.78);
+  white-space: nowrap;
+}
+
+.role-nav-tab:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.role-nav-tab.is-active {
+  background: #fff;
+  color: #0f2744;
+}
+
+.role-nav-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.role-nav .notif-bell-btn {
+  color: #0f2744;
+  border: 0;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+.role-nav .notif-bell-btn:hover {
+  background: #f3f7ff;
+  color: #0f2744;
+}
+
+.role-nav .notif-bell-count {
+  border-color: #0f2744;
+}
+
+.role-nav-category {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 150px;
+  padding: 4px 0 0;
+}
+
+.role-nav-category-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9eb6d4;
+  line-height: 1;
+}
+
+.role-nav-category strong {
+  font-size: 0.9rem;
+  color: #ffffff;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.role-profile {
+  position: relative;
+}
+
+.role-profile-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 2px solid #ffffff;
+  padding: 0;
+  overflow: hidden;
+  background: #ffffff;
+  color: #0f2744;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.role-profile-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 18%;
+  display: block;
+}
+
+.role-profile-initials {
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #0f2744;
+}
+
+.role-profile-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 180px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+  padding: 6px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.role-profile-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.role-profile-menu button:hover {
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+.role-profile-menu button.is-danger {
+  color: #c62828;
+}
+
+.profile-edit-photo-wrap {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--space-4);
+  padding-top: 10px;
+  overflow: visible;
+}
+
+.profile-edit-photo-box {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  overflow: visible;
+}
+
+.profile-edit-photo {
+  width: 96px;
+  height: 96px;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 2px solid var(--color-border);
+  background: #e8eef6;
+  cursor: pointer;
+  padding: 0;
+  display: block;
+}
+
+.profile-edit-photo-img,
+.profile-edit-photo-empty {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.profile-edit-photo-img.is-face,
+.role-profile-img {
+  object-position: center 18%;
+}
+
+.ui-input.is-locked {
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  background: color-mix(in srgb, var(--color-border) 35%, var(--color-surface));
+  color: var(--color-muted);
+  cursor: default;
+  user-select: text;
+  pointer-events: none;
+}
+
+.profile-edit-photo-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #1b365d;
+}
+
+.profile-edit-photo-clear {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 2px solid #fff;
+  background: #c62828;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  z-index: 2;
+}
+
+.profile-edit-photo-clear:hover {
+  background: #b71c1c;
+}
+
+.profile-edit-photo-input-hidden {
+  display: none;
+}
+
+.profile-edit-fields {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  padding-top: var(--space-2);
+}
+
+@media (max-width: 640px) {
+  .profile-edit-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .role-nav {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .role-nav-tabs {
+    order: 3;
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .role-nav-tab {
+    flex: 1 1 auto;
+    min-width: calc(33.33% - 6px);
+    padding: 0 10px;
+    font-size: 0.8rem;
+  }
+
+  .role-nav-category {
+    display: none;
+  }
+}
+
 .topbar {
   min-height: var(--topbar-height);
   display: flex;

@@ -5,7 +5,7 @@ export const ROLE_HOME_PATH = {
   gatekeeper: '/app/home/gatekeeper',
   doctor: '/app/home/doctor',
   nurse: '/app/home/nurse',
-  finance: '/app/home/finance',
+  finance: '/app/billing',
   pharmacist: '/app/home/pharmacist',
   'inventory-manager': '/app/home/inventory',
 }

@@ -41,12 +41,39 @@ class PettyExpenseController extends Controller
             $query->whereDate('expense_date', '<=', $to);
         }
 
+        $date = trim((string) $request->get('date', ''));
+        $year = $request->integer('year') ?: null;
+        $month = $request->integer('month') ?: null;
+        if ($date !== '') {
+            $query->whereDate('expense_date', $date);
+        } else {
+            if ($year) {
+                $query->whereYear('expense_date', $year);
+            }
+            if ($month && $month >= 1 && $month <= 12) {
+                $query->whereMonth('expense_date', $month);
+            }
+        }
+
         if ($search = trim((string) $request->get('q', $request->get('search', '')))) {
-            $query->where(function ($q) use ($search) {
-                $q->where('expense_code', 'like', "%{$search}%")
-                    ->orWhere('title', 'like', "%{$search}%")
-                    ->orWhere('spent_for', 'like', "%{$search}%")
-                    ->orWhere('reason', 'like', "%{$search}%");
+            $like = "%{$search}%";
+            $query->where(function ($q) use ($like, $search) {
+                $q->where('expense_code', 'like', $like)
+                    ->orWhere('title', 'like', $like)
+                    ->orWhere('spent_for', 'like', $like)
+                    ->orWhere('reason', 'like', $like)
+                    ->orWhere('payment_method', 'like', $like)
+                    ->orWhere('notes', 'like', $like)
+                    ->orWhere('status', 'like', $like)
+                    ->orWhere('void_reason', 'like', $like)
+                    ->orWhereDate('expense_date', $search)
+                    ->orWhere('expense_date', 'like', $like)
+                    ->orWhereRaw('CAST(amount AS CHAR) LIKE ?', [$like])
+                    ->orWhereHas('creator', function ($u) use ($like) {
+                        $u->where('name', 'like', $like)
+                            ->orWhere('staff_code', 'like', $like)
+                            ->orWhere('email', 'like', $like);
+                    });
             });
         }
 
@@ -58,6 +85,16 @@ class PettyExpenseController extends Controller
         }
         if ($to) {
             $summaryBase->whereDate('expense_date', '<=', $to);
+        }
+        if ($date !== '') {
+            $summaryBase->whereDate('expense_date', $date);
+        } else {
+            if ($year) {
+                $summaryBase->whereYear('expense_date', $year);
+            }
+            if ($month && $month >= 1 && $month <= 12) {
+                $summaryBase->whereMonth('expense_date', $month);
+            }
         }
         if ($createdBy) {
             $summaryBase->where('created_by', $createdBy);
@@ -94,6 +131,17 @@ class PettyExpenseController extends Controller
             ])
             ->all();
 
+        $availableYears = PettyExpense::query()
+            ->where('status', 'posted')
+            ->whereNotNull('expense_date')
+            ->selectRaw('DISTINCT YEAR(expense_date) as y')
+            ->orderByDesc('y')
+            ->pluck('y')
+            ->filter()
+            ->map(fn ($y) => (int) $y)
+            ->values()
+            ->all();
+
         return response()->json([
             'data' => collect($paginator->items())->map(fn (PettyExpense $e) => $this->payload($e)),
             'meta' => [
@@ -103,6 +151,7 @@ class PettyExpenseController extends Controller
                 'total' => $paginator->total(),
                 'spent_for_options' => $spentForOptions,
                 'staff' => $staff,
+                'available_years' => $availableYears,
             ],
             'summary' => [
                 'total_amount' => round((float) (clone $summaryBase)->sum('amount'), 2),

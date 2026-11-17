@@ -6,9 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Models\FacilitySetting;
 use App\Models\User;
 use App\Support\Audit;
+use App\Support\SecureUpload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -104,6 +106,62 @@ class AuthController extends Controller
         ]);
     }
 
+    /** Staff self-service: basic profile only (not email / CNIC / role). */
+    public function updateProfile(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:150'],
+            'father_name' => ['nullable', 'string', 'max:150'],
+            'date_of_birth' => ['nullable', 'date'],
+            'address' => ['nullable', 'string', 'max:255'],
+            'city' => ['nullable', 'string', 'max:100'],
+            'photo' => ['nullable', 'image', 'max:40960'],
+            'remove_photo' => ['nullable', 'boolean'],
+        ], [
+            'photo.max' => 'Photo must be 40 MB or smaller.',
+            'photo.image' => 'Photo must be a JPG, PNG, or WEBP image.',
+        ]);
+
+        $user->name = trim($data['name']);
+        $user->father_name = isset($data['father_name']) ? trim((string) $data['father_name']) ?: null : $user->father_name;
+        $user->date_of_birth = $data['date_of_birth'] ?? null;
+        $user->address = isset($data['address']) ? trim((string) $data['address']) ?: null : null;
+        $user->city = isset($data['city']) ? trim((string) $data['city']) ?: null : null;
+
+        $removePhoto = $request->boolean('remove_photo');
+
+        if ($request->hasFile('photo')) {
+            if ($user->photo_path && Storage::disk('public')->exists($user->photo_path)) {
+                Storage::disk('public')->delete($user->photo_path);
+            }
+            $user->photo_path = SecureUpload::storeImage($request->file('photo'), 'staff-photos', 'staff_');
+        } elseif ($removePhoto) {
+            if ($user->photo_path && Storage::disk('public')->exists($user->photo_path)) {
+                Storage::disk('public')->delete($user->photo_path);
+            }
+            $user->photo_path = null;
+        }
+
+        $user->save();
+
+        Audit::log(
+            'profile_update',
+            'auth',
+            'user',
+            $user->id,
+            "Profile updated for {$user->email}",
+            userId: $user->id,
+        );
+
+        return response()->json([
+            'message' => 'Profile updated',
+            'user' => $this->userPayload($user->load('role')),
+        ]);
+    }
+
     public function logout(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -134,7 +192,15 @@ class AuthController extends Controller
         return [
             'id' => $user->id,
             'name' => $user->name,
+            'father_name' => $user->father_name,
             'email' => $user->email,
+            'phone' => $user->phone,
+            'cnic' => $user->cnic,
+            'gender' => $user->gender,
+            'date_of_birth' => $user->date_of_birth?->format('Y-m-d'),
+            'address' => $user->address,
+            'city' => $user->city,
+            'photo_url' => SecureUpload::url($user->photo_path),
             'role' => $user->role?->name,
             'role_slug' => $user->role?->slug,
             'modules' => $user->role?->modules ?? [],

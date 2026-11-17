@@ -11,11 +11,9 @@ class RoomBedSeeder extends Seeder
     public function run(): void
     {
         $rooms = [
-            ['name' => 'Ward A', 'code' => 'WA', 'floor' => '1', 'room_type' => 'General', 'beds' => 8],
-            ['name' => 'Ward B', 'code' => 'WB', 'floor' => '1', 'room_type' => 'General', 'beds' => 8],
-            ['name' => 'Ward C', 'code' => 'WC', 'floor' => '2', 'room_type' => 'General', 'beds' => 8],
+            ['name' => 'Ward A', 'code' => 'WA', 'floor' => '1', 'room_type' => 'General', 'beds' => 6],
+            ['name' => 'Ward B', 'code' => 'WB', 'floor' => '1', 'room_type' => 'General', 'beds' => 6],
             ['name' => 'Private 1', 'code' => 'P1', 'floor' => '2', 'room_type' => 'Private', 'beds' => 3],
-            ['name' => 'Private 2', 'code' => 'P2', 'floor' => '2', 'room_type' => 'Private', 'beds' => 3],
         ];
 
         foreach ($rooms as $roomData) {

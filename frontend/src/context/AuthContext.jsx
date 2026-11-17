@@ -10,12 +10,18 @@ import {
   setToken,
   touchActivity,
 } from '../lib/api'
+import { applyTheme, applyUserTheme } from '../lib/theme'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => getStoredUser())
   const [booting, setBooting] = useState(Boolean(getToken()))
+
+  useEffect(() => {
+    if (user?.id) applyUserTheme(user)
+    else applyTheme('light', null)
+  }, [user?.id])
 
   useEffect(() => {
     let cancelled = false
@@ -41,12 +47,14 @@ export function AuthProvider({ children }) {
           }
           setStoredUser(data.user)
           setUser(data.user)
+          applyUserTheme(data.user)
           touchActivity()
         }
       } catch {
         if (!cancelled) {
           clearToken()
           setUser(null)
+          applyTheme('light', null)
         }
       } finally {
         if (!cancelled) setBooting(false)
@@ -99,6 +107,7 @@ export function AuthProvider({ children }) {
         }
         setStoredUser(data.user)
         setUser(data.user)
+        applyUserTheme(data.user)
         touchActivity()
         return data.user
       },
@@ -106,6 +115,7 @@ export function AuthProvider({ children }) {
         if (nextUser) {
           setStoredUser(nextUser)
           setUser(nextUser)
+          applyUserTheme(nextUser)
           return nextUser
         }
         const data = await api('/me')
@@ -114,6 +124,7 @@ export function AuthProvider({ children }) {
         }
         setStoredUser(data.user)
         setUser(data.user)
+        applyUserTheme(data.user)
         return data.user
       },
       async logout() {
@@ -124,6 +135,7 @@ export function AuthProvider({ children }) {
         }
         clearToken()
         setUser(null)
+        applyTheme('light', null)
       },
     }),
     [user, booting],

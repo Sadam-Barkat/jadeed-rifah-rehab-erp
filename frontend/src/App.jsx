@@ -56,7 +56,7 @@ export default function App() {
               <Route path="home/gatekeeper" element={<RoleHomePage roleKey="gatekeeper" />} />
               <Route path="home/doctor" element={<RoleHomePage roleKey="doctor" />} />
               <Route path="home/nurse" element={<RoleHomePage roleKey="nurse" />} />
-              <Route path="home/finance" element={<RoleHomePage roleKey="finance" />} />
+              <Route path="home/finance" element={<Navigate to="/app/billing" replace />} />
               <Route path="home/pharmacist" element={<RoleHomePage roleKey="pharmacist" />} />
               <Route path="home/inventory" element={<RoleHomePage roleKey="inventory-manager" />} />
               <Route path="owner-dashboard" element={<OwnerDashboard />} />

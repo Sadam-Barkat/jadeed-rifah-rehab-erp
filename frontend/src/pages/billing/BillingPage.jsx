@@ -1,13 +1,29 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
 import { formatPkr } from '../../lib/format'
 import { useAuth } from '../../context/AuthContext'
 import Button from '../../components/ui/Button'
-import Modal from '../../components/ui/Modal'
 import { SkeletonCards } from '../../components/ui/Skeleton'
 import '../pages.css'
+
+const VALID_TABS = new Set(['fees', 'petty', 'bills'])
+
+const MONTH_OPTIONS = [
+  { value: '1', label: 'January' },
+  { value: '2', label: 'February' },
+  { value: '3', label: 'March' },
+  { value: '4', label: 'April' },
+  { value: '5', label: 'May' },
+  { value: '6', label: 'June' },
+  { value: '7', label: 'July' },
+  { value: '8', label: 'August' },
+  { value: '9', label: 'September' },
+  { value: '10', label: 'October' },
+  { value: '11', label: 'November' },
+  { value: '12', label: 'December' },
+]
 
 const emptyInvoice = {
   admission_id: '',
@@ -30,6 +46,7 @@ const emptyPetty = {
   title: '',
   amount: '',
   spent_for: '',
+  spent_for_custom: '',
   reason: '',
   payment_method: 'cash',
   expense_date: new Date().toISOString().slice(0, 10),
@@ -51,7 +68,6 @@ const emptyBill = {
   amount: '',
   payment_method: 'bank',
   bill_date: new Date().toISOString().slice(0, 10),
-  reference: '',
   notes: '',
 }
 
@@ -73,7 +89,15 @@ const PAY_TABS = [
 
 export default function BillingPage() {
   const { user } = useAuth()
-  const [pageTab, setPageTab] = useState('fees')
+  const isFinance = user?.role_slug === 'finance'
+  const [searchParams, setSearchParams] = useSearchParams()
+  const rawTab = searchParams.get('tab') || 'fees'
+  const pageTab = VALID_TABS.has(rawTab) ? rawTab : 'fees'
+
+  function setPageTab(tab) {
+    setSearchParams(tab === 'fees' ? { tab: 'fees' } : { tab }, { replace: true })
+  }
+
   const [loading, setLoading] = useState(true)
   const [savingInvoice, setSavingInvoice] = useState(false)
   const [savingPayment, setSavingPayment] = useState(false)
@@ -87,22 +111,30 @@ export default function BillingPage() {
 
   const [pettyForm, setPettyForm] = useState(emptyPetty)
   const [pettyRows, setPettyRows] = useState([])
-  const [pettySummary, setPettySummary] = useState({ total_amount: 0, entries: 0 })
+  const [spentForOptions, setSpentForOptions] = useState([])
+  const [pettyYears, setPettyYears] = useState([])
+  const [pettyYear, setPettyYear] = useState('')
+  const [pettyMonth, setPettyMonth] = useState('')
+  const [pettyDate, setPettyDate] = useState('')
   const [pettySearch, setPettySearch] = useState('')
   const [debouncedPettySearch, setDebouncedPettySearch] = useState('')
   const [savingPetty, setSavingPetty] = useState(false)
-  const [voidPetty, setVoidPetty] = useState(null)
-  const [voidingPetty, setVoidingPetty] = useState(false)
+  const [pettyReady, setPettyReady] = useState(false)
+  const [pettyTableLoading, setPettyTableLoading] = useState(false)
 
   const [billForm, setBillForm] = useState(emptyBill)
   const [billRows, setBillRows] = useState([])
-  const [billSummary, setBillSummary] = useState({ total_amount: 0, entries: 0 })
+  const [billTypesMeta, setBillTypesMeta] = useState([])
+  const [billYears, setBillYears] = useState([])
+  const [billYear, setBillYear] = useState('')
+  const [billMonth, setBillMonth] = useState('')
+  const [billDateFilter, setBillDateFilter] = useState('')
   const [billSearch, setBillSearch] = useState('')
   const [debouncedBillSearch, setDebouncedBillSearch] = useState('')
   const [billTypeFilter, setBillTypeFilter] = useState('')
   const [savingBill, setSavingBill] = useState(false)
-  const [voidBill, setVoidBill] = useState(null)
-  const [voidingBill, setVoidingBill] = useState(false)
+  const [billReady, setBillReady] = useState(false)
+  const [billTableLoading, setBillTableLoading] = useState(false)
 
   function setInv(key, value) {
     setInvoiceForm((prev) => ({ ...prev, [key]: value }))
@@ -146,18 +178,32 @@ export default function BillingPage() {
   async function loadPetty() {
     const q = new URLSearchParams({ per_page: '50' })
     if (debouncedPettySearch) q.set('q', debouncedPettySearch)
+    if (pettyDate) {
+      q.set('date', pettyDate)
+    } else {
+      if (pettyYear) q.set('year', String(pettyYear))
+      if (pettyMonth) q.set('month', String(pettyMonth))
+    }
     const res = await api(`/petty-expenses?${q}`)
     setPettyRows(res.data || [])
-    setPettySummary(res.summary || { total_amount: 0, entries: 0 })
+    setSpentForOptions(res.meta?.spent_for_options || [])
+    setPettyYears(res.meta?.available_years || [])
   }
 
   async function loadBills() {
     const q = new URLSearchParams({ per_page: '50' })
     if (debouncedBillSearch) q.set('q', debouncedBillSearch)
     if (billTypeFilter) q.set('bill_type', billTypeFilter)
+    if (billDateFilter) {
+      q.set('date', billDateFilter)
+    } else {
+      if (billYear) q.set('year', String(billYear))
+      if (billMonth) q.set('month', String(billMonth))
+    }
     const res = await api(`/facility-bills?${q}`)
     setBillRows(res.data || [])
-    setBillSummary(res.summary || { total_amount: 0, entries: 0 })
+    setBillYears(res.meta?.available_years || [])
+    setBillTypesMeta(res.meta?.bill_types || [])
   }
 
   useEffect(() => {
@@ -177,19 +223,31 @@ export default function BillingPage() {
 
   useEffect(() => {
     if (pageTab !== 'petty') return
-    setLoading(true)
+    const firstLoad = !pettyReady
+    if (firstLoad) setLoading(true)
+    else setPettyTableLoading(true)
     loadPetty()
       .catch((err) => toast.error(err.message || 'Failed to load petty expenses'))
-      .finally(() => setLoading(false))
-  }, [pageTab, debouncedPettySearch])
+      .finally(() => {
+        if (firstLoad) setLoading(false)
+        setPettyTableLoading(false)
+        setPettyReady(true)
+      })
+  }, [pageTab, debouncedPettySearch, pettyYear, pettyMonth, pettyDate])
 
   useEffect(() => {
     if (pageTab !== 'bills') return
-    setLoading(true)
+    const firstLoad = !billReady
+    if (firstLoad) setLoading(true)
+    else setBillTableLoading(true)
     loadBills()
       .catch((err) => toast.error(err.message || 'Failed to load facility bills'))
-      .finally(() => setLoading(false))
-  }, [pageTab, debouncedBillSearch, billTypeFilter])
+      .finally(() => {
+        if (firstLoad) setLoading(false)
+        setBillTableLoading(false)
+        setBillReady(true)
+      })
+  }, [pageTab, debouncedBillSearch, billTypeFilter, billYear, billMonth, billDateFilter])
 
   const openInvoices = useMemo(
     () => invoices.filter((i) => i.status === 'unpaid' && Number(i.balance) > 0),
@@ -255,7 +313,11 @@ export default function BillingPage() {
 
   async function handlePetty(e) {
     e.preventDefault()
-    if (!pettyForm.title.trim() || !pettyForm.spent_for.trim() || !pettyForm.reason.trim()) {
+    const spentFor =
+      pettyForm.spent_for === '__new__'
+        ? (pettyForm.spent_for_custom || '').trim()
+        : (pettyForm.spent_for || '').trim()
+    if (!pettyForm.title.trim() || !spentFor || !pettyForm.reason.trim()) {
       toast.error('Item, spent for, and reason are required')
       return
     }
@@ -266,7 +328,7 @@ export default function BillingPage() {
         body: {
           title: pettyForm.title.trim(),
           amount: Number(pettyForm.amount),
-          spent_for: pettyForm.spent_for.trim(),
+          spent_for: spentFor,
           reason: pettyForm.reason.trim(),
           payment_method: pettyForm.payment_method || 'cash',
           expense_date: pettyForm.expense_date || null,
@@ -274,30 +336,12 @@ export default function BillingPage() {
         },
       })
       toast.success(`${data.data.expense_code} recorded`)
-      setPettyForm(emptyPetty)
+      setPettyForm({ ...emptyPetty, spent_for: spentFor })
       await loadPetty()
     } catch (err) {
       toast.error(err.message || 'Failed to save petty expense')
     } finally {
       setSavingPetty(false)
-    }
-  }
-
-  async function confirmVoidPetty() {
-    if (!voidPetty) return
-    setVoidingPetty(true)
-    try {
-      const data = await api(`/petty-expenses/${voidPetty.id}/void`, {
-        method: 'POST',
-        body: { void_reason: 'Voided from billing' },
-      })
-      toast.success(`${data.data.expense_code} voided`)
-      setVoidPetty(null)
-      await loadPetty()
-    } catch (err) {
-      toast.error(err.message || 'Void failed')
-    } finally {
-      setVoidingPetty(false)
     }
   }
 
@@ -320,7 +364,6 @@ export default function BillingPage() {
           amount: Number(billForm.amount || 0),
           payment_method: billForm.payment_method || 'bank',
           bill_date: billForm.bill_date || null,
-          reference: billForm.reference || null,
           notes: billForm.notes || null,
         },
       })
@@ -334,88 +377,56 @@ export default function BillingPage() {
     }
   }
 
-  async function confirmVoidBill() {
-    if (!voidBill) return
-    setVoidingBill(true)
-    try {
-      const data = await api(`/facility-bills/${voidBill.id}/void`, {
-        method: 'POST',
-        body: { void_reason: 'Voided from billing' },
-      })
-      toast.success(`${data.data.bill_code} voided`)
-      setVoidBill(null)
-      await loadBills()
-    } catch (err) {
-      toast.error(err.message || 'Void failed')
-    } finally {
-      setVoidingBill(false)
-    }
-  }
-
   return (
-    <div className="page">
-      <div className="page-header no-print">
-        <div>
-          <p className="eyebrow">Finance</p>
-          <h2>Billing & Finance</h2>
-        </div>
-        <div className="page-actions">
-          <Link className="ui-btn ui-btn-ghost ui-btn-md" to="/app/home/finance">
-            Dashboard
-          </Link>
-        </div>
-      </div>
+    <div className={`page${isFinance ? ' finance-page' : ''}`}>
+      {!isFinance ? (
+        <>
+          <div className="page-header no-print">
+            <div>
+              <p className="eyebrow">Finance</p>
+              <h2>Billing & Finance</h2>
+            </div>
+          </div>
 
-      <div className="page-tabs no-print" role="tablist" aria-label="Billing tabs">
-        <button
-          type="button"
-          role="tab"
-          className={`page-tab ${pageTab === 'fees' ? 'is-active' : ''}`}
-          aria-selected={pageTab === 'fees'}
-          onClick={() => setPageTab('fees')}
-        >
-          Fees & payments
-        </button>
-        <button
-          type="button"
-          role="tab"
-          className={`page-tab ${pageTab === 'petty' ? 'is-active' : ''}`}
-          aria-selected={pageTab === 'petty'}
-          onClick={() => setPageTab('petty')}
-        >
-          Petty expenses
-        </button>
-        <button
-          type="button"
-          role="tab"
-          className={`page-tab ${pageTab === 'bills' ? 'is-active' : ''}`}
-          aria-selected={pageTab === 'bills'}
-          onClick={() => setPageTab('bills')}
-        >
-          Facility bills
-        </button>
-      </div>
+          <div className="page-tabs no-print" role="tablist" aria-label="Billing tabs">
+            <button
+              type="button"
+              role="tab"
+              className={`page-tab ${pageTab === 'fees' ? 'is-active' : ''}`}
+              aria-selected={pageTab === 'fees'}
+              onClick={() => setPageTab('fees')}
+            >
+              Fees & payments
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className={`page-tab ${pageTab === 'petty' ? 'is-active' : ''}`}
+              aria-selected={pageTab === 'petty'}
+              onClick={() => setPageTab('petty')}
+            >
+              Petty expenses
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className={`page-tab ${pageTab === 'bills' ? 'is-active' : ''}`}
+              aria-selected={pageTab === 'bills'}
+              onClick={() => setPageTab('bills')}
+            >
+              Facility bills
+            </button>
+          </div>
+        </>
+      ) : null}
 
       {loading ? (
         <SkeletonCards count={3} />
       ) : pageTab === 'bills' ? (
         <>
-          <section className="stat-grid stat-grid-4 no-print">
-            <article className="stat-card tone-red">
-              <p>Total bills</p>
-              <strong>{formatPkr(billSummary.total_amount || 0)}</strong>
-              <span>Posted</span>
-            </article>
-            <article className="stat-card tone-blue">
-              <p>Entries</p>
-              <strong>{billSummary.entries || 0}</strong>
-              <span>This list</span>
-            </article>
-          </section>
-
           <form className="panel form-grid no-print" onSubmit={handleBill}>
             <div className="panel-head full">
-              <h3>Add bill</h3>
+              <h3>Add facility bill</h3>
             </div>
             <div className="ui-field">
               <label htmlFor="bill_type">Bill type</label>
@@ -484,19 +495,6 @@ export default function BillingPage() {
                 <option value="other">Other</option>
               </select>
             </div>
-            <div className="ui-field">
-              <label htmlFor="bill_ref">Reference</label>
-              <input
-                id="bill_ref"
-                className="ui-input"
-                value={billForm.reference}
-                onChange={(e) => setBill('reference', e.target.value)}
-              />
-            </div>
-            <div className="ui-field">
-              <label>Entered by</label>
-              <input className="ui-input" value={user?.name || '—'} readOnly />
-            </div>
             <div className="ui-field full">
               <label htmlFor="bill_notes">Notes</label>
               <input
@@ -514,33 +512,79 @@ export default function BillingPage() {
           </form>
 
           <section className="panel">
-            <div className="panel-head">
-              <h3>Bills list</h3>
-              <div className="list-toolbar no-print">
+            <div className="panel-head no-print">
+              <div className="list-toolbar petty-list-toolbar">
+                <select
+                  className="ui-select"
+                  value={billYear}
+                  onChange={(e) => {
+                    setBillYear(e.target.value)
+                    setBillDateFilter('')
+                  }}
+                  aria-label="Year"
+                >
+                  <option value="">Year</option>
+                  {billYears.map((y) => (
+                    <option key={y} value={String(y)}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="ui-select"
+                  value={billMonth}
+                  onChange={(e) => {
+                    setBillMonth(e.target.value)
+                    setBillDateFilter('')
+                  }}
+                  aria-label="Month"
+                >
+                  <option value="">Month</option>
+                  {MONTH_OPTIONS.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  className="ui-input"
+                  type="date"
+                  value={billDateFilter}
+                  onChange={(e) => {
+                    setBillDateFilter(e.target.value)
+                    if (e.target.value) {
+                      setBillYear('')
+                      setBillMonth('')
+                    }
+                  }}
+                  aria-label="Date"
+                />
+                <select
+                  className="ui-select"
+                  value={billTypeFilter}
+                  onChange={(e) => setBillTypeFilter(e.target.value)}
+                  aria-label="Bill type"
+                >
+                  <option value="">Bill type</option>
+                  {(billTypesMeta.length ? billTypesMeta : BILL_TYPES).map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
                 <input
                   className="ui-input"
                   type="search"
                   value={billSearch}
                   onChange={(e) => setBillSearch(e.target.value)}
                   placeholder="Search"
-                  aria-label="Search facility bills"
+                  aria-label="Search"
                 />
-                <select
-                  className="ui-select"
-                  value={billTypeFilter}
-                  onChange={(e) => setBillTypeFilter(e.target.value)}
-                  aria-label="Bill type filter"
-                >
-                  <option value="">All types</option>
-                  {BILL_TYPES.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
               </div>
             </div>
-            {billRows.length === 0 ? (
+            {billTableLoading ? (
+              <SkeletonCards count={1} />
+            ) : billRows.length === 0 ? (
               <p className="panel-copy">No facility bills yet.</p>
             ) : (
               <div className="scroll-panel">
@@ -551,10 +595,8 @@ export default function BillingPage() {
                       <th>Type</th>
                       <th>Amount</th>
                       <th>Pay</th>
-                      <th>Reference</th>
                       <th>Entered by</th>
                       <th>Date</th>
-                      <th className="no-print">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -564,14 +606,8 @@ export default function BillingPage() {
                         <td>{row.bill_type_label || row.bill_type}</td>
                         <td>{formatPkr(row.amount)}</td>
                         <td>{row.payment_method}</td>
-                        <td>{row.reference || '—'}</td>
                         <td>{row.entered_by || '—'}</td>
                         <td>{row.bill_date}</td>
-                        <td className="no-print">
-                          <Button type="button" variant="secondary" onClick={() => setVoidBill(row)}>
-                            Void
-                          </Button>
-                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -579,37 +615,9 @@ export default function BillingPage() {
               </div>
             )}
           </section>
-
-          <Modal
-            open={!!voidBill}
-            title="Void facility bill"
-            onClose={() => (!voidingBill ? setVoidBill(null) : null)}
-            onConfirm={confirmVoidBill}
-            confirmLabel={voidingBill ? 'Voiding...' : 'Void'}
-            cancelLabel="Cancel"
-            danger
-            confirm
-          >
-            <p className="panel-copy">
-              Void {voidBill?.bill_code} ({voidBill?.bill_type_label || voidBill?.bill_type})?
-            </p>
-          </Modal>
         </>
       ) : pageTab === 'petty' ? (
         <>
-          <section className="stat-grid stat-grid-4 no-print">
-            <article className="stat-card tone-red">
-              <p>Total spent</p>
-              <strong>{formatPkr(pettySummary.total_amount || 0)}</strong>
-              <span>Posted</span>
-            </article>
-            <article className="stat-card tone-blue">
-              <p>Entries</p>
-              <strong>{pettySummary.entries || 0}</strong>
-              <span>This list</span>
-            </article>
-          </section>
-
           <form className="panel form-grid no-print" onSubmit={handlePetty}>
             <div className="panel-head full">
               <h3>Add petty expense</h3>
@@ -639,14 +647,34 @@ export default function BillingPage() {
             </div>
             <div className="ui-field">
               <label htmlFor="petty_spent_for">Spent for</label>
-              <input
+              <select
                 id="petty_spent_for"
-                className="ui-input"
+                className="ui-select"
                 required
                 value={pettyForm.spent_for}
                 onChange={(e) => setPetty('spent_for', e.target.value)}
-              />
+              >
+                <option value="">Select</option>
+                {spentForOptions.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+                <option value="__new__">Add new…</option>
+              </select>
             </div>
+            {pettyForm.spent_for === '__new__' ? (
+              <div className="ui-field">
+                <label htmlFor="petty_spent_for_custom">New name</label>
+                <input
+                  id="petty_spent_for_custom"
+                  className="ui-input"
+                  required
+                  value={pettyForm.spent_for_custom}
+                  onChange={(e) => setPetty('spent_for_custom', e.target.value)}
+                />
+              </div>
+            ) : null}
             <div className="ui-field">
               <label htmlFor="petty_reason">Reason</label>
               <input
@@ -682,10 +710,6 @@ export default function BillingPage() {
                 <option value="other">Other</option>
               </select>
             </div>
-            <div className="ui-field">
-              <label>Entered by</label>
-              <input className="ui-input" value={user?.name || '—'} readOnly />
-            </div>
             <div className="ui-field full">
               <label htmlFor="petty_notes">Notes</label>
               <input
@@ -703,18 +727,66 @@ export default function BillingPage() {
           </form>
 
           <section className="panel">
-            <div className="panel-head">
-              <h3>Petty expense list</h3>
-              <input
-                className="ui-input panel-search no-print"
-                type="search"
-                value={pettySearch}
-                onChange={(e) => setPettySearch(e.target.value)}
-                placeholder="Search"
-                aria-label="Search petty expenses"
-              />
+            <div className="panel-head no-print">
+              <div className="list-toolbar petty-list-toolbar">
+                <select
+                  className="ui-select"
+                  value={pettyYear}
+                  onChange={(e) => {
+                    setPettyYear(e.target.value)
+                    setPettyDate('')
+                  }}
+                  aria-label="Year"
+                >
+                  <option value="">Year</option>
+                  {pettyYears.map((y) => (
+                    <option key={y} value={String(y)}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="ui-select"
+                  value={pettyMonth}
+                  onChange={(e) => {
+                    setPettyMonth(e.target.value)
+                    setPettyDate('')
+                  }}
+                  aria-label="Month"
+                >
+                  <option value="">Month</option>
+                  {MONTH_OPTIONS.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  className="ui-input"
+                  type="date"
+                  value={pettyDate}
+                  onChange={(e) => {
+                    setPettyDate(e.target.value)
+                    if (e.target.value) {
+                      setPettyYear('')
+                      setPettyMonth('')
+                    }
+                  }}
+                  aria-label="Date"
+                />
+                <input
+                  className="ui-input"
+                  type="search"
+                  value={pettySearch}
+                  onChange={(e) => setPettySearch(e.target.value)}
+                  placeholder="Search"
+                  aria-label="Search"
+                />
+              </div>
             </div>
-            {pettyRows.length === 0 ? (
+            {pettyTableLoading ? (
+              <SkeletonCards count={1} />
+            ) : pettyRows.length === 0 ? (
               <p className="panel-copy">No petty expenses yet.</p>
             ) : (
               <div className="scroll-panel">
@@ -728,7 +800,6 @@ export default function BillingPage() {
                       <th>Reason</th>
                       <th>Entered by</th>
                       <th>Date</th>
-                      <th className="no-print">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -741,11 +812,6 @@ export default function BillingPage() {
                         <td>{row.reason}</td>
                         <td>{row.entered_by || '—'}</td>
                         <td>{row.expense_date}</td>
-                        <td className="no-print">
-                          <Button type="button" variant="secondary" onClick={() => setVoidPetty(row)}>
-                            Void
-                          </Button>
-                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -753,69 +819,9 @@ export default function BillingPage() {
               </div>
             )}
           </section>
-
-          <Modal
-            open={!!voidPetty}
-            title="Void petty expense"
-            onClose={() => (!voidingPetty ? setVoidPetty(null) : null)}
-            onConfirm={confirmVoidPetty}
-            confirmLabel={voidingPetty ? 'Voiding...' : 'Void'}
-            cancelLabel="Cancel"
-            danger
-            confirm
-          >
-            <p className="panel-copy">
-              Void {voidPetty?.expense_code} ({voidPetty?.title}) for {voidPetty?.spent_for}?
-            </p>
-          </Modal>
         </>
       ) : (
         <>
-          <div className="stat-grid">
-            <article className="stat-card">
-              <p>Open invoices</p>
-              <strong>{openInvoices.length}</strong>
-            </article>
-            <article className="stat-card">
-              <p>Outstanding</p>
-              <strong>{formatPkr(openInvoices.reduce((s, i) => s + Number(i.balance || 0), 0))}</strong>
-            </article>
-            <article className="stat-card">
-              <p>Pending requests</p>
-              <strong>{payments.filter((p) => p.approval_status === 'pending').length || (payTab === 'pending' ? payments.length : '—')}</strong>
-            </article>
-          </div>
-
-          <section className="panel">
-            <div className="panel-head">
-              <h3>Fee packages</h3>
-            </div>
-            {packages.length === 0 ? (
-              <p className="panel-copy">No packages configured.</p>
-            ) : (
-              <div className="table-wrap scroll-panel">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Days</th>
-                      <th>Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {packages.map((p) => (
-                      <tr key={p.id}>
-                        <td>{p.name}</td>
-                        <td>{p.program_days}</td>
-                        <td>{formatPkr(p.amount)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-
           <form className="panel form-grid" onSubmit={handleCreateInvoice}>
             <div className="panel-head full">
               <h3>Create invoice</h3>

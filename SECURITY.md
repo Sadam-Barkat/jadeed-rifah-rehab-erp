@@ -9,7 +9,7 @@ Update this file whenever a security item is implemented, partially applied, or 
 | # | Item | Status | Where applied | Notes |
 |---|------|--------|---------------|-------|
 | 1 | Auth on every protected API | Done | `routes/api.php` | `/me` `/logout` require Sanctum |
-| 2 | RBAC / permission check per action | In Progress | roles.modules + DoctorController | Module gates include doctors/rounds |
+| 2 | RBAC / permission check per action | In Progress | roles.modules + DoctorController | Module gates include doctors/rounds; petty/facility void = admin-finance only |
 | 3 | Backend input validation | Done | AuthController login | Validate email/password |
 | 4 | SQL injection prevention (ORM/prepared) | Done | Eloquent queries | No raw unsafe SQL |
 | 5 | XSS prevention | Done | React UI (no raw HTML inject) | No `dangerouslySetInnerHTML` |
@@ -21,8 +21,8 @@ Update this file whenever a security item is implemented, partially applied, or 
 | 11 | Session timeout + login rate limit | Done | AuthContext + facility settings | Idle timeout enforced client-side; login throttle:10,1 |
 | 12 | Careful token/sensitive storage on client | Done | sessionStorage token (per-tab) | No shared-tab role takeover; no clinical notes stored |
 | 13 | Safe production errors | Done | `bootstrap/app.php` | API hides stack when `APP_DEBUG=false` |
-| 14 | No hard-delete of sensitive records | In Progress | patients archive + account void | Patients soft-archive when admitted; void ledger (no hard delete) |
-| 15 | Audit log for important actions | Done | `Audit` + Settings page | login/logout, patient, admission, payment, void, archive, user, discharge, settings, petty create/void |
+| 14 | No hard-delete of sensitive records | In Progress | patients archive + account/petty void | Patients soft-archive when admitted; void ledger; finance cannot void petty/facility (admin only) |
+| 15 | Audit log for important actions | Done | `Audit` + Settings page | login/logout, patient, admission, payment, void, archive, user, discharge, settings, petty create/void, self profile update |
 
 ## Should
 

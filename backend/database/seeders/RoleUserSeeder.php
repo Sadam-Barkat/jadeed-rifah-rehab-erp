@@ -11,7 +11,6 @@ class RoleUserSeeder extends Seeder
 {
     public function run(): void
     {
-        // Admin: overview tabs + management. `patients` is API-only for Management tab.
         $adminModules = [
             'owner-dashboard',
             'admin-patients',
@@ -39,7 +38,7 @@ class RoleUserSeeder extends Seeder
                 'treatment', 'discharge',
             ],
             'nurse' => ['patients', 'nursing', 'medical-records'],
-            'finance' => ['billing', 'accounts', 'reports'],
+            'finance' => ['billing'],
             'pharmacist' => ['pharmacy'],
             'inventory-manager' => ['inventory', 'kitchen'],
         ];
@@ -65,63 +64,97 @@ class RoleUserSeeder extends Seeder
             );
         }
 
-        $adminRole = Role::query()->where('slug', 'admin')->firstOrFail();
-
-        User::query()->updateOrCreate(
-            ['email' => 'admin@jadeed.local'],
-            [
-                'staff_code' => 'ADM-0001',
-                'name' => 'Admin',
-                'password' => Hash::make('Admin@123'),
-                'role_id' => $adminRole->id,
-                'is_active' => true,
-                'must_change_password' => false,
-            ]
-        );
-
-        $fallbackRoleId = Role::query()->where('slug', 'receptionist')->value('id') ?? $adminRole->id;
-
-        User::query()
-            ->where('email', '!=', 'admin@jadeed.local')
-            ->whereNotIn('email', [
-                'ahmad.pharmacist@jadeed.local',
-                'alishaba.pharmacist@jadeed.local',
-                'imran.inventory@jadeed.local',
-                'sara.inventory@jadeed.local',
-            ])
-            ->update([
-                'is_active' => false,
-                'role_id' => $fallbackRoleId,
-            ]);
-
-        $pharmacistRole = Role::query()->where('slug', 'pharmacist')->firstOrFail();
-
-        User::query()->updateOrCreate(
-            ['email' => 'ahmad.pharmacist@jadeed.local'],
-            [
-                'staff_code' => 'PHR-0001',
-                'name' => 'Ahmad',
-                'password' => Hash::make('Pharmacist@123'),
-                'role_id' => $pharmacistRole->id,
-                'is_active' => true,
-                'must_change_password' => false,
-            ]
-        );
-
-        User::query()->updateOrCreate(
-            ['email' => 'alishaba.pharmacist@jadeed.local'],
-            [
-                'staff_code' => 'PHR-0002',
-                'name' => 'Alishaba',
-                'password' => Hash::make('Pharmacist@123'),
-                'role_id' => $pharmacistRole->id,
-                'is_active' => true,
-                'must_change_password' => false,
-            ]
-        );
-
         Role::query()
             ->whereNotIn('slug', array_keys($roleNames))
             ->delete();
+
+        $staff = [
+            [
+                'email' => 'admin@jadeed.local',
+                'staff_code' => 'ADM-0001',
+                'name' => 'Admin',
+                'password' => 'Admin@123',
+                'role' => 'admin',
+                'phone' => '03001110001',
+            ],
+            [
+                'email' => 'reception@jadeed.local',
+                'staff_code' => 'REC-0001',
+                'name' => 'Reception Staff',
+                'password' => 'Reception@123',
+                'role' => 'receptionist',
+                'phone' => '03001110002',
+            ],
+            [
+                'email' => 'gate@jadeed.local',
+                'staff_code' => 'GAT-0001',
+                'name' => 'Gate Staff',
+                'password' => 'Gate@123',
+                'role' => 'gatekeeper',
+                'phone' => '03001110003',
+            ],
+            [
+                'email' => 'doctor@jadeed.local',
+                'staff_code' => 'DOC-0001',
+                'name' => 'Dr. Kamran Siddiqui',
+                'password' => 'Doctor@123',
+                'role' => 'doctor',
+                'phone' => '03001110004',
+            ],
+            [
+                'email' => 'nurse@jadeed.local',
+                'staff_code' => 'NUR-0001',
+                'name' => 'Nurse Ayesha',
+                'password' => 'Nurse@123',
+                'role' => 'nurse',
+                'phone' => '03001110005',
+            ],
+            [
+                'email' => 'finance@jadeed.local',
+                'staff_code' => 'FIN-0001',
+                'name' => 'Finance Staff',
+                'password' => 'Finance@123',
+                'role' => 'finance',
+                'phone' => '03001110006',
+            ],
+            [
+                'email' => 'pharmacist@jadeed.local',
+                'staff_code' => 'PHR-0001',
+                'name' => 'Pharmacist Ahmad',
+                'password' => 'Pharmacist@123',
+                'role' => 'pharmacist',
+                'phone' => '03001110007',
+            ],
+            [
+                'email' => 'inventory@jadeed.local',
+                'staff_code' => 'INV-0001',
+                'name' => 'Inventory Staff',
+                'password' => 'Inventory@123',
+                'role' => 'inventory-manager',
+                'phone' => '03001110008',
+            ],
+        ];
+
+        $keepEmails = [];
+        foreach ($staff as $row) {
+            $keepEmails[] = $row['email'];
+            $roleId = Role::query()->where('slug', $row['role'])->value('id');
+            User::query()->updateOrCreate(
+                ['email' => $row['email']],
+                [
+                    'staff_code' => $row['staff_code'],
+                    'name' => $row['name'],
+                    'phone' => $row['phone'],
+                    'password' => Hash::make($row['password']),
+                    'role_id' => $roleId,
+                    'is_active' => true,
+                    'must_change_password' => false,
+                ]
+            );
+        }
+
+        User::query()
+            ->whereNotIn('email', $keepEmails)
+            ->update(['is_active' => false]);
     }
 }

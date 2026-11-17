@@ -153,6 +153,38 @@ html[data-theme='dark'] .password-toggle:hover {
   flex: 0 1 220px;
 }
 
+.panel-head .petty-list-toolbar {
+  width: 100%;
+  margin-bottom: 0;
+}
+
+.petty-list-toolbar .ui-select {
+  flex: 0 1 120px;
+  min-width: 100px;
+}
+
+.petty-list-toolbar .ui-input[type='date'] {
+  flex: 0 1 150px;
+  min-width: 140px;
+}
+
+.petty-list-toolbar .ui-input[type='search'] {
+  flex: 1 1 140px;
+  min-width: min(140px, 100%);
+}
+
+.petty-list-toolbar .ui-select:nth-of-type(4) {
+  flex: 0 1 140px;
+  min-width: 120px;
+}
+
+@media (max-width: 720px) {
+  .petty-list-toolbar .ui-select {
+    flex: 1 1 calc(33.33% - 8px);
+    min-width: 0;
+  }
+}
+
 .logs-toolbar .ui-input[type='date'] {
   min-width: min(160px, 100%);
   flex: 0 1 170px;
@@ -1956,6 +1988,12 @@ html[data-theme='dark'] .password-toggle:hover {
   height: 1px;
   background: var(--color-border);
   width: 70%;
+}
+
+.staff-missing-intro {
+  margin: 0 0 8px;
+  color: var(--color-text);
+  font-size: 0.92rem;
 }
 
 .staff-missing-list {

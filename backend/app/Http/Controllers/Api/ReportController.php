@@ -334,6 +334,9 @@ class ReportController extends Controller
             ->count();
         $outstanding = $invoiceUnpaidBalance;
         $openInvoices = $invoiceUnpaidCount + $invoiceInstallmentCount;
+        $openInvoiceTotal = (float) Invoice::query()
+            ->whereIn('status', ['unpaid', 'partial'])
+            ->sum('total_amount');
         // Staff attendance is day-based (not a range sum).
         $staffDay = $from->isSameDay($to) ? $from->copy() : now();
         $staffDayStr = $staffDay->toDateString();
@@ -503,15 +506,15 @@ class ReportController extends Controller
                 ],
                 [
                     'key' => 'visitors',
-                    'label' => 'Visitors',
-                    'value' => $visitorsInRange,
-                    'meta' => "{$visitorsInside} inside now",
+                    'label' => 'Visitors inside',
+                    'value' => $visitorsInside,
+                    'meta' => 'Currently checked in',
                     'tone' => 'orange',
                     'tooltip_lines' => [
-                        "Total visitors: {$visitorsInRange}",
+                        "Visitors inside: {$visitorsInside}",
+                        "Total visitors (period): {$visitorsInRange}",
                         "For patients: {$visitorsForPatients}",
                         "Walk-in: {$visitorsWalkIn}",
-                        "Inside now: {$visitorsInside}",
                     ],
                 ],
                 [
@@ -561,14 +564,15 @@ class ReportController extends Controller
                     'key' => 'open_invoices',
                     'label' => 'Open invoices',
                     'value' => $openInvoices,
-                    'meta' => 'Unpaid / installments',
+                    'meta' => 'Unpaid invoice count',
                     'tone' => 'orange',
                     'tooltip_lines' => [
                         "Open invoices: {$openInvoices}",
                         "Not started (unpaid): {$invoiceUnpaidCount}",
                         "Installments in progress: {$invoiceInstallmentCount}",
-                        "Fully paid: {$invoicePaidCount}",
                         'Outstanding balance: '.$money($invoiceUnpaidBalance),
+                        'Unpaid invoice total: '.$money($openInvoiceTotal),
+                        "Fully paid: {$invoicePaidCount}",
                     ],
                 ],
             ],
@@ -2291,7 +2295,7 @@ class ReportController extends Controller
                 FacilityBill::typeLabel($b->bill_type),
                 number_format((float) $b->amount, 2, '.', ''),
                 $b->payment_method ?: '—',
-                $b->reference ?: '—',
+                $b->notes ?: '—',
                 $b->creator?->name ?: '—',
                 optional($b->bill_date)->toDateString() ?: '—',
             ];
@@ -2328,7 +2332,7 @@ class ReportController extends Controller
                 'tone' => $tones[$i % count($tones)],
                 'detail' => [
                     'title' => FacilityBill::typeLabel($typeKey).' bills',
-                    'columns' => ['Code', 'Type', 'Amount', 'Pay', 'Reference', 'Entered by', 'Date'],
+                    'columns' => ['Code', 'Type', 'Amount', 'Pay', 'Notes', 'Entered by', 'Date'],
                     'allow_filter' => false,
                     'staff_filter_column' => 'Entered by',
                     'search_placeholder' => 'Search bill',
@@ -2361,7 +2365,7 @@ class ReportController extends Controller
                     'tone' => 'red',
                     'detail' => [
                         'title' => 'Facility bills',
-                        'columns' => ['Code', 'Type', 'Amount', 'Pay', 'Reference', 'Entered by', 'Date'],
+                        'columns' => ['Code', 'Type', 'Amount', 'Pay', 'Notes', 'Entered by', 'Date'],
                         'allow_filter' => false,
                         'search_placeholder' => 'Search bill',
                         'rows' => $detailRows,

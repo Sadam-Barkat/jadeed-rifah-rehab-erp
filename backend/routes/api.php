@@ -36,6 +36,7 @@ Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
     Route::put('/me/account', [AuthController::class, 'updateAccount']);
+    Route::post('/me/profile', [AuthController::class, 'updateProfile']);
     Route::post('/logout', [AuthController::class, 'logout']);
 
     Route::get('/attendance/day', [AttendanceController::class, 'day']);
@@ -167,9 +168,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('module:billing,accounts,admin-finance')->group(function () {
         Route::get('/petty-expenses', [PettyExpenseController::class, 'index']);
         Route::post('/petty-expenses', [PettyExpenseController::class, 'store']);
-        Route::post('/petty-expenses/{pettyExpense}/void', [PettyExpenseController::class, 'void']);
         Route::get('/facility-bills', [FacilityBillController::class, 'index']);
         Route::post('/facility-bills', [FacilityBillController::class, 'store']);
+    });
+
+    // Void only for admin (finance staff cannot delete/void entries).
+    Route::middleware('module:admin-finance')->group(function () {
+        Route::post('/petty-expenses/{pettyExpense}/void', [PettyExpenseController::class, 'void']);
         Route::post('/facility-bills/{facilityBill}/void', [FacilityBillController::class, 'void']);
     });
 

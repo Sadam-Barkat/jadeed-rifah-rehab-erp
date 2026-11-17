@@ -77,7 +77,7 @@ export default function PaymentApprovalPage() {
     return (
       <div className="page">
         <p className="panel-copy">Payment not found.</p>
-        <Link className="ui-btn ui-btn-back ui-btn-md" to={isAdmin ? '/app/admin/finance' : '/app/billing'}>
+        <Link className="ui-btn ui-btn-back ui-btn-md" to={isAdmin ? '/app/admin/finance' : '/app/billing?tab=fees'}>
           Back
         </Link>
       </div>

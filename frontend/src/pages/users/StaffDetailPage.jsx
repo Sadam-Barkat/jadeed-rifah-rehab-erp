@@ -30,6 +30,9 @@ function printMissingFields(staff) {
     ['CNIC', staff?.cnic],
     ['Phone', staff?.phone],
     ['Email', staff?.email],
+    ['Gender', staff?.gender],
+    ['Date of birth', staff?.date_of_birth],
+    ['Qualification', staff?.qualification],
     ['Role', staff?.role?.name],
     ['Joined on', staff?.joined_at || staff?.joined_at_label],
     ['Address', staff?.address],
@@ -134,7 +137,7 @@ export default function StaffDetailPage() {
               {staff.photo_url ? (
                 <img src={staff.photo_url} alt={staff.name} />
               ) : (
-                <div className="staff-cert-photo-empty">Photo</div>
+                <div className="staff-cert-photo-empty" aria-hidden="true" />
               )}
             </div>
 
@@ -208,7 +211,7 @@ export default function StaffDetailPage() {
 
       <Modal
         open={printBlockOpen}
-        title="Complete profile before print"
+        title="Missing details"
         confirm
         size="sm"
         cancelLabel="Close"
@@ -216,15 +219,12 @@ export default function StaffDetailPage() {
         onClose={() => setPrintBlockOpen(false)}
         onConfirm={() => setPrintBlockOpen(false)}
       >
-        <p style={{ margin: '0 0 10px' }}>
-          Please add these missing details in Edit staff before printing the certificate:
-        </p>
+        <p className="staff-missing-intro">Add in Edit staff:</p>
         <ul className="staff-missing-list">
           {missing.map((item) => (
             <li key={item}>{item}</li>
           ))}
         </ul>
-        <p style={{ margin: '10px 0 0', fontSize: '0.88rem' }}>Photo is optional.</p>
       </Modal>
     </div>
   )

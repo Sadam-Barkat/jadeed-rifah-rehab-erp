@@ -2,13 +2,21 @@
 
 Lean build: **8 roles only**. Extra modules were removed from code and database.
 
-## Login (only Admin is seeded)
+## Login (seeded test staff)
 
 | Role | Email | Password |
 |------|-------|----------|
 | Admin | `admin@jadeed.local` | `Admin@123` |
+| Receptionist | `reception@jadeed.local` | `Reception@123` |
+| Gatekeeper | `gate@jadeed.local` | `Gate@123` |
+| Doctor | `doctor@jadeed.local` | `Doctor@123` |
+| Nurse | `nurse@jadeed.local` | `Nurse@123` |
+| Finance | `finance@jadeed.local` | `Finance@123` |
+| Pharmacist | `pharmacist@jadeed.local` | `Pharmacist@123` |
+| Inventory Manager | `inventory@jadeed.local` | `Inventory@123` |
 
-All other staff are **created by Admin** in Management (no self-signup / forgot-password).
+Demo data: ~10 rows per major list (patients, invoices/payments, visitors, pharmacy/inventory moves, petty, facility bills, nursing/doctor notes, ledger).  
+Extra staff can still be created by Admin in Management (no self-signup / forgot-password).
 
 ---
 
@@ -31,7 +39,8 @@ All other staff are **created by Admin** in Management (no self-signup / forgot-
 3. Gatekeeper — visitor log  
 4. Doctor — medical care  
 5. Nurse — nursing notes  
-6. Finance — fees + accounts  
+6. Finance — top navbar (no sidebar): Fees & payments · Petty expenses · Facility bills  
+   All non-admin roles use the same top navbar (logo + modules + bell + profile). Admin keeps sidebar.  
 7. Pharmacist — medicines only (stock in + dispense to patients)  
 8. Inventory Manager — non-medicine stock (kitchen, beds, cameras, equipment, etc.) + kitchen  
 

@@ -12,13 +12,14 @@ class DatabaseSeeder extends Seeder
             RoleUserSeeder::class,
             RoomBedSeeder::class,
             MedicineSeeder::class,
-            PharmacyActivitySeeder::class,
             FeePackageSeeder::class,
             InventorySeeder::class,
+            DoctorSeeder::class,
+            DemoDataSeeder::class,
+            PharmacyActivitySeeder::class,
             InventoryActivitySeeder::class,
             PettyExpenseSeeder::class,
             FacilityBillSeeder::class,
-            DoctorSeeder::class,
             SettingsSeeder::class,
         ]);
     }

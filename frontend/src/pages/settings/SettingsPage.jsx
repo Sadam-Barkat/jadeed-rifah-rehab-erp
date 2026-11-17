@@ -2,26 +2,15 @@ import { useEffect, useState } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
+import { applyTheme, readTheme } from '../../lib/theme'
 import { useAuth } from '../../context/AuthContext'
 import Button from '../../components/ui/Button'
 import '../pages.css'
 
-const THEME_KEY = 'jadeed_erp_theme'
-
-function readTheme() {
-  const saved = localStorage.getItem(THEME_KEY)
-  return saved === 'dark' ? 'dark' : 'light'
-}
-
-function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme)
-  localStorage.setItem(THEME_KEY, theme)
-}
-
 export default function SettingsPage() {
   const { user, refreshUser } = useAuth()
   const [savingAccount, setSavingAccount] = useState(false)
-  const [theme, setTheme] = useState(readTheme)
+  const [theme, setTheme] = useState(() => readTheme(user))
   const [showCurrent, setShowCurrent] = useState(false)
   const [showNew, setShowNew] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
@@ -33,8 +22,9 @@ export default function SettingsPage() {
   })
 
   useEffect(() => {
-    applyTheme(theme)
-  }, [])
+    setTheme(readTheme(user))
+    applyTheme(readTheme(user), user)
+  }, [user?.id])
 
   useEffect(() => {
     if (user?.email) {
@@ -72,7 +62,7 @@ export default function SettingsPage() {
 
   function onThemeChange(next) {
     setTheme(next)
-    applyTheme(next)
+    applyTheme(next, user)
   }
 
   return (
