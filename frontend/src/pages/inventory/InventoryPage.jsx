@@ -51,6 +51,7 @@ const DEPARTMENTS = [
 const emptyItem = {
   name: '',
   category: 'kitchen',
+  category_custom: '',
   unit: 'pcs',
   stock_qty: '',
   reorder_level: '10',
@@ -84,6 +85,7 @@ export default function InventoryPage() {
   const [savingItem, setSavingItem] = useState(false)
   const [savingMove, setSavingMove] = useState(false)
   const [items, setItems] = useState([])
+  const [categories, setCategories] = useState(CATEGORIES)
   const [movements, setMovements] = useState([])
   const [itemForm, setItemForm] = useState(emptyItem)
   const [moveForm, setMoveForm] = useState(() => ({
@@ -100,7 +102,6 @@ export default function InventoryPage() {
   const [staff, setStaff] = useState([])
   const [moveBill, setMoveBill] = useState(null)
   const [beds, setBeds] = useState([])
-
   function setItem(key, value) {
     setItemForm((prev) => ({ ...prev, [key]: value }))
   }
@@ -108,6 +109,7 @@ export default function InventoryPage() {
   function setMove(key, value) {
     setMoveForm((prev) => ({ ...prev, [key]: value }))
   }
+
 
   const selectedItem = useMemo(
     () => items.find((i) => String(i.id) === String(moveForm.inventory_item_id)),
@@ -124,9 +126,14 @@ export default function InventoryPage() {
     return () => clearTimeout(t)
   }, [moveQuery])
 
+
+
   async function loadItems() {
     const itemRes = await api('/inventory-items?status=active&per_page=100')
     setItems(itemRes.data || [])
+    if (Array.isArray(itemRes.meta?.categories) && itemRes.meta.categories.length) {
+      setCategories(itemRes.meta.categories)
+    }
   }
 
   async function loadBeds() {
@@ -145,6 +152,7 @@ export default function InventoryPage() {
     setMovements(moveRes.data || [])
     if (moveRes.meta?.staff) setStaff(moveRes.meta.staff)
   }
+
 
   async function load() {
     setLoading(true)
@@ -174,6 +182,8 @@ export default function InventoryPage() {
     if (!canUseInventory || loading) return
     loadMovements().catch((err) => toast.error(err.message || 'Failed to filter movements'))
   }, [moveType, movePurpose, moveDepartment, moveStaff, debouncedMoveQuery])
+
+
 
   useEffect(() => {
     if (isBedsItem) {
@@ -217,9 +227,18 @@ export default function InventoryPage() {
     e.preventDefault()
     setSavingItem(true)
     try {
+      const category =
+        itemForm.category === '__new__'
+          ? (itemForm.category_custom || '').trim()
+          : itemForm.category
+      if (!category) {
+        toast.error('Category is required')
+        setSavingItem(false)
+        return
+      }
       const fd = new FormData()
       fd.append('name', itemForm.name)
-      fd.append('category', itemForm.category)
+      fd.append('category', category)
       fd.append('unit', itemForm.unit || 'unit')
       fd.append('stock_qty', String(itemForm.stock_qty ? Number(itemForm.stock_qty) : 0))
       fd.append('reorder_level', String(itemForm.reorder_level ? Number(itemForm.reorder_level) : 10))
@@ -339,11 +358,24 @@ export default function InventoryPage() {
             <div className="ui-field">
               <label htmlFor="category">Category</label>
               <select id="category" className="ui-select" value={itemForm.category} onChange={(e) => setItem('category', e.target.value)}>
-                {CATEGORIES.map((c) => (
+                {categories.map((c) => (
                   <option key={c.value} value={c.value}>{c.label}</option>
                 ))}
+                <option value="__new__">Add new…</option>
               </select>
             </div>
+            {itemForm.category === '__new__' ? (
+              <div className="ui-field">
+                <label htmlFor="category_custom">New category</label>
+                <input
+                  id="category_custom"
+                  className="ui-input"
+                  required
+                  value={itemForm.category_custom}
+                  onChange={(e) => setItem('category_custom', e.target.value)}
+                />
+              </div>
+            ) : null}
             <div className="ui-field">
               <label htmlFor="unit">Unit</label>
               <input id="unit" className="ui-input" value={itemForm.unit} onChange={(e) => setItem('unit', e.target.value)} placeholder="pcs / kg / liter" />
@@ -577,7 +609,7 @@ export default function InventoryPage() {
                       <tr key={i.id}>
                         <td>{i.item_code}</td>
                         <td>{i.name}</td>
-                        <td>{labelOf(CATEGORIES, i.category)}</td>
+                        <td>{i.category_label || labelOf(categories, i.category)}</td>
                         <td>
                           {i.stock_qty} {i.unit}
                           {i.low_stock ? <span className="badge badge-warn"> low</span> : null}

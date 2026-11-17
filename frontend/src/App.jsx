@@ -27,6 +27,7 @@ const InventoryPage = lazy(() => import('./pages/inventory/InventoryPage'))
 const KitchenPage = lazy(() => import('./pages/kitchen/KitchenPage'))
 const AccountsPage = lazy(() => import('./pages/accounts/AccountsPage'))
 const UsersPage = lazy(() => import('./pages/users/UsersPage'))
+const StaffDetailPage = lazy(() => import('./pages/users/StaffDetailPage'))
 const ManagementPage = lazy(() => import('./pages/management/ManagementPage'))
 const AdminSectionPage = lazy(() => import('./pages/admin/AdminSectionPage'))
 const ReportsPage = lazy(() => import('./pages/reports/ReportsPage'))
@@ -86,6 +87,7 @@ export default function App() {
               <Route path="kitchen" element={<KitchenPage />} />
               <Route path="accounts" element={<AccountsPage />} />
               <Route path="users" element={<UsersPage />} />
+              <Route path="users/:id" element={<StaffDetailPage />} />
               <Route path="management" element={<ManagementPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/login" replace />} />

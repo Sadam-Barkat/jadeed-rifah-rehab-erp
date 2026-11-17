@@ -23,6 +23,7 @@ class SettingsSeeder extends Seeder
             'timezone' => 'Asia/Karachi',
             'currency' => 'PKR',
             'session_timeout_minutes' => 60,
+            'duty_pin' => '2468',
         ]);
     }
 }

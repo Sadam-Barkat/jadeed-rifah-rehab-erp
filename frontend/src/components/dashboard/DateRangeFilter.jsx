@@ -39,6 +39,8 @@ export function resolveFilter(filter = {}) {
   const mode = filter.mode || 'all'
   const minYear = filter.minYear || year || String(new Date().getFullYear())
   const created_by = filter.created_by || ''
+  const spent_for = filter.spent_for || ''
+  const bill_type = filter.bill_type || ''
 
   if (date) {
     return {
@@ -49,6 +51,8 @@ export function resolveFilter(filter = {}) {
       month,
       date,
       created_by,
+      spent_for,
+      bill_type,
       minYear,
       label: `Date: ${date}`,
     }
@@ -64,6 +68,8 @@ export function resolveFilter(filter = {}) {
       month,
       date: '',
       created_by,
+      spent_for,
+      bill_type,
       minYear,
       label: `${MONTHS.find((m) => m.value === month)?.label || month} ${year}`,
     }
@@ -81,6 +87,8 @@ export function resolveFilter(filter = {}) {
       month: '',
       date: '',
       created_by,
+      spent_for,
+      bill_type,
       minYear,
       label: `Year ${year}`,
     }
@@ -98,8 +106,10 @@ export function resolveFilter(filter = {}) {
       month: '',
       date: '',
       created_by,
+      spent_for,
+      bill_type,
       minYear,
-      label: 'Previous 7 days',
+      label: 'Last 7 days',
     }
   }
 
@@ -111,8 +121,10 @@ export function resolveFilter(filter = {}) {
     month: '',
     date: '',
     created_by,
+    spent_for,
+    bill_type,
     minYear,
-    label: 'All data',
+    label: 'All time',
   }
 }
 
@@ -127,6 +139,11 @@ export default function DateRangeFilter({
   loading,
   showStaff = false,
   staffOptions = [],
+  staffLabel = 'Entered by',
+  showSpentFor = false,
+  spentForOptions = [],
+  showBillType = false,
+  billTypeOptions = [],
 }) {
   const current = value || defaultRange()
   const [mode, setMode] = useState(current.mode || 'all')
@@ -134,6 +151,8 @@ export default function DateRangeFilter({
   const [month, setMonth] = useState(current.month || '')
   const [date, setDate] = useState(current.date || '')
   const [createdBy, setCreatedBy] = useState(current.created_by || '')
+  const [spentFor, setSpentFor] = useState(current.spent_for || '')
+  const [billType, setBillType] = useState(current.bill_type || '')
   const [yearOptions, setYearOptions] = useState(years)
   const [minYear, setMinYear] = useState(current.minYear || String(new Date().getFullYear()))
 
@@ -143,8 +162,10 @@ export default function DateRangeFilter({
     setMonth(current.month || '')
     setDate(current.date || '')
     setCreatedBy(current.created_by || '')
+    setSpentFor(current.spent_for || '')
+    setBillType(current.bill_type || '')
     if (current.minYear) setMinYear(current.minYear)
-  }, [current.year, current.month, current.date, current.mode, current.minYear, current.created_by])
+  }, [current.year, current.month, current.date, current.mode, current.minYear, current.created_by, current.spent_for, current.bill_type])
 
   useEffect(() => {
     let alive = true
@@ -159,7 +180,13 @@ export default function DateRangeFilter({
           setMinYear(earliest)
           // First load: if still on default all with this-year min, expand to overall data.
           if ((!value || value.mode === 'all') && (!value?.year && !value?.month && !value?.date)) {
-            const next = resolveFilter({ mode: 'all', minYear: earliest, created_by: createdBy })
+            const next = resolveFilter({
+              mode: 'all',
+              minYear: earliest,
+              created_by: createdBy,
+              spent_for: spentFor,
+              bill_type: billType,
+            })
             setMode('all')
             onApply?.(next)
           }
@@ -184,6 +211,8 @@ export default function DateRangeFilter({
   function push(partial) {
     const next = resolveFilter({
       created_by: createdBy,
+      spent_for: spentFor,
+      bill_type: billType,
       ...partial,
       minYear,
     })
@@ -192,21 +221,47 @@ export default function DateRangeFilter({
     setMonth(next.month || '')
     setDate(next.date || '')
     setCreatedBy(next.created_by || '')
+    setSpentFor(next.spent_for || '')
+    setBillType(next.bill_type || '')
     onApply?.(next)
   }
 
   function onYearChange(y) {
     if (!y) {
       // Keep month/date only if clearing year → overall (or keep date if set)
-      push({ mode: 'all', year: '', month: '', date, created_by: createdBy })
+      push({
+        mode: 'all',
+        year: '',
+        month: '',
+        date,
+        created_by: createdBy,
+        spent_for: spentFor,
+        bill_type: billType,
+      })
       return
     }
-    push({ mode: month ? 'month' : 'year', year: y, month, date, created_by: createdBy })
+    push({
+      mode: month ? 'month' : 'year',
+      year: y,
+      month,
+      date,
+      created_by: createdBy,
+      spent_for: spentFor,
+      bill_type: billType,
+    })
   }
 
   function onMonthChange(m) {
     if (!year && m) return
-    push({ mode: m ? 'month' : 'year', year, month: m, date, created_by: createdBy })
+    push({
+      mode: m ? 'month' : 'year',
+      year,
+      month: m,
+      date,
+      created_by: createdBy,
+      spent_for: spentFor,
+      bill_type: billType,
+    })
   }
 
   function onDateChange(d) {
@@ -217,19 +272,37 @@ export default function DateRangeFilter({
       month,
       date: d,
       created_by: createdBy,
+      spent_for: spentFor,
+      bill_type: billType,
     })
   }
 
   function onStaffChange(id) {
-    push({ mode, year, month, date, created_by: id })
+    push({ mode, year, month, date, created_by: id, spent_for: spentFor, bill_type: billType })
+  }
+
+  function onSpentForChange(name) {
+    push({ mode, year, month, date, created_by: createdBy, spent_for: name, bill_type: billType })
+  }
+
+  function onBillTypeChange(type) {
+    push({ mode, year, month, date, created_by: createdBy, spent_for: spentFor, bill_type: type })
   }
 
   function apply7d() {
-    push({ mode: '7d', year: '', month: '', date: '', created_by: createdBy })
+    push({
+      mode: '7d',
+      year: '',
+      month: '',
+      date: '',
+      created_by: createdBy,
+      spent_for: spentFor,
+      bill_type: billType,
+    })
   }
 
   function reset() {
-    push({ mode: 'all', year: '', month: '', date: '', created_by: '' })
+    push({ mode: 'all', year: '', month: '', date: '', created_by: '', spent_for: '', bill_type: '' })
   }
 
   return (
@@ -279,17 +352,57 @@ export default function DateRangeFilter({
         />
       </label>
 
+      {showSpentFor ? (
+        <label className={`date-filter-field ${spentFor ? 'is-active' : ''}`}>
+          <span>Spent for</span>
+          <select
+            className="ui-select"
+            value={spentFor}
+            disabled={loading}
+            onChange={(e) => onSpentForChange(e.target.value)}
+            aria-label="Spent for filter"
+          >
+            <option value="">All names</option>
+            {spentForOptions.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+
+      {showBillType ? (
+        <label className={`date-filter-field ${billType ? 'is-active' : ''}`}>
+          <span>Bill type</span>
+          <select
+            className="ui-select"
+            value={billType}
+            disabled={loading}
+            onChange={(e) => onBillTypeChange(e.target.value)}
+            aria-label="Bill type filter"
+          >
+            <option value="">All types</option>
+            {billTypeOptions.map((opt) => (
+              <option key={opt.value || opt} value={opt.value || opt}>
+                {opt.label || opt}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+
       {showStaff ? (
         <label className={`date-filter-field ${createdBy ? 'is-active' : ''}`}>
-          <span>Staff</span>
+          <span>{staffLabel}</span>
           <select
             className="ui-select"
             value={createdBy}
             disabled={loading}
             onChange={(e) => onStaffChange(e.target.value)}
-            aria-label="Staff filter"
+            aria-label={staffLabel}
           >
-            <option value="">All staff</option>
+            <option value="">All</option>
             {staffOptions.map((s) => (
               <option key={s.id} value={String(s.id)}>
                 {s.name}

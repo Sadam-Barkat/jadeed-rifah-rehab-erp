@@ -16,13 +16,13 @@ Update this file whenever a security item is implemented, partially applied, or 
 | 6 | Password hashing | Done | User model cast + seeder | bcrypt hashed; plaintext only at create/regenerate (one-time UI) |
 | 7 | Secrets only in `.env` | Done | backend `.env` | DB/app secrets not in code |
 | 8 | Mass assignment protection | Done | User/Role fillable | Explicit fields only |
-| 9 | Upload security (type/size whitelist) | In Progress | Inventory bill upload (`SecureUpload`) | jpg/jpeg/png/webp/pdf, max 5MB; re-apply same pattern for other uploads |
+| 9 | Upload security (type/size whitelist) | In Progress | Inventory bills + staff photo (`SecureUpload`) | Bills: jpg/png/webp/pdf max 5MB; staff photo: jpg/png/webp max 40MB + friendly MB error |
 | 10 | HTTPS + secure cookies/tokens | Later | — | Production deploy |
 | 11 | Session timeout + login rate limit | Done | AuthContext + facility settings | Idle timeout enforced client-side; login throttle:10,1 |
-| 12 | Careful token/sensitive storage on client | Done | localStorage token only | No clinical notes stored |
+| 12 | Careful token/sensitive storage on client | Done | sessionStorage token (per-tab) | No shared-tab role takeover; no clinical notes stored |
 | 13 | Safe production errors | Done | `bootstrap/app.php` | API hides stack when `APP_DEBUG=false` |
 | 14 | No hard-delete of sensitive records | In Progress | patients archive + account void | Patients soft-archive when admitted; void ledger (no hard delete) |
-| 15 | Audit log for important actions | Done | `Audit` + Settings page | login/logout, patient, admission, payment, void, archive, user, discharge, settings |
+| 15 | Audit log for important actions | Done | `Audit` + Settings page | login/logout, patient, admission, payment, void, archive, user, discharge, settings, petty create/void |
 
 ## Should
 
@@ -46,4 +46,4 @@ Update this file whenever a security item is implemented, partially applied, or 
 - Must remaining: 0 Todo (3 In Progress: RBAC polish, hard-delete, upload whitelist)
 - Should remaining: 2
 - Later: 4
-- Last updated: 2026-11-12 (inventory bill upload + pharmacy/inventory split)
+- Last updated: 2026-11-17 (per-tab sessionStorage auth)

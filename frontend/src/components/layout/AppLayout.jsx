@@ -57,7 +57,10 @@ export default function AppLayout() {
       <Modal
         open={logoutOpen}
         title="Sign out"
-        confirmLabel="Logout"
+        size="sm"
+        confirm
+        cancelLabel="Cancel"
+        confirmLabel="Sign out"
         danger
         onClose={() => setLogoutOpen(false)}
         onConfirm={async () => {
@@ -66,7 +69,7 @@ export default function AppLayout() {
           toast.success('Signed out')
         }}
       >
-        Do you want to end this session?
+        You will be signed out of this device.
       </Modal>
     </div>
   )

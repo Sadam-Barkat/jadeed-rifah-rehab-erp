@@ -1,6 +1,8 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Printer } from 'lucide-react'
 import { formatPkr } from '../../lib/format'
+import { printReportTable } from '../../lib/printReport'
 import { SkeletonCards } from '../ui/Skeleton'
 import Modal from '../ui/Modal'
 import BarChart from './BarChart'
@@ -13,10 +15,14 @@ function formatKpi(kpi) {
 }
 
 function statusClass(value) {
-  const v = String(value || '').toLowerCase()
-  if (['critical', 'danger', 'unpaid', 'archived', 'inactive'].includes(v)) return 'badge-danger'
+  const v = String(value || '')
+    .trim()
+    .toLowerCase()
+  if (['critical', 'danger', 'unpaid', 'archived', 'inactive', 'occupied'].includes(v)) return 'badge-danger'
   if (['low', 'warning', 'partial', 'pending', 'registered', 'checked_in'].includes(v)) return 'badge-warn'
-  if (['good', 'active', 'paid', 'completed', 'success', 'admitted', 'checked_out'].includes(v)) return 'badge-ok'
+  if (['good', 'active', 'paid', 'completed', 'success', 'admitted', 'checked_out', 'available'].includes(v)) {
+    return 'badge-ok'
+  }
   return ''
 }
 
@@ -63,13 +69,17 @@ function DetailModal({ open, detail, onClose }) {
   }, [columns, nameCol])
 
   const staffColIndex = useMemo(() => {
-    const preferred = findColumnIndex(columns, staffCol || 'Recorded by')
+    if (!staffCol) return -1
+    const preferred = findColumnIndex(columns, staffCol)
     if (preferred >= 0) return preferred
     return columns.findIndex((c) => String(c).toLowerCase().includes('recorded'))
   }, [columns, staffCol])
 
-  const hasNameFilter = nameColIndex >= 0 && nameColIndex !== resolvedFilterCol
-  const hasStaffFilter = staffColIndex >= 0 && staffColIndex !== resolvedFilterCol && staffColIndex !== nameColIndex
+  const allowTypeFilter = detail?.allow_filter !== false
+  const hasNameFilter = detail?.allow_name_filter === true && nameColIndex >= 0 && nameColIndex !== resolvedFilterCol
+  const hasStaffFilter =
+    staffColIndex >= 0 && staffColIndex !== resolvedFilterCol && staffColIndex !== nameColIndex
+  const searchPlaceholder = detail?.search_placeholder || 'Search'
 
   const uniqueValues = (index) => {
     const values = new Set()
@@ -113,9 +123,10 @@ function DetailModal({ open, detail, onClose }) {
   ])
 
   const nameLabel = hasNameFilter ? String(columns[nameColIndex] || 'Name') : 'Name'
+  const modalTitle = detail?.title || 'Details'
 
   return (
-    <Modal open={open} title={detail?.title || 'Details'} onClose={onClose} size="md" hideFooter>
+    <Modal open={open} title={modalTitle} onClose={onClose} size="md" hideFooter>
       <div className="kpi-modal-sticky">
         <div className="kpi-modal-toolbar">
           <input
@@ -123,8 +134,8 @@ function DetailModal({ open, detail, onClose }) {
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search"
-            aria-label="Search"
+            placeholder={searchPlaceholder}
+            aria-label={searchPlaceholder}
           />
           {hasNameFilter && nameOptions.length > 1 ? (
             <select
@@ -135,12 +146,12 @@ function DetailModal({ open, detail, onClose }) {
             >
               {nameOptions.map((opt) => (
                 <option key={`name-${opt}`} value={opt}>
-                  {opt === 'all' ? `All ${nameLabel.toLowerCase()}s` : opt}
+                  {opt === 'all' ? 'All' : opt}
                 </option>
               ))}
             </select>
           ) : null}
-          {typeOptions.length > 1 ? (
+          {allowTypeFilter && typeOptions.length > 1 ? (
             <select
               className="ui-select"
               value={typeFilter}
@@ -149,9 +160,7 @@ function DetailModal({ open, detail, onClose }) {
             >
               {typeOptions.map((opt) => (
                 <option key={`type-${opt}`} value={opt}>
-                  {opt === 'all'
-                    ? (staffColIndex === resolvedFilterCol ? 'All staff' : 'All')
-                    : opt}
+                  {opt === 'all' ? 'All' : opt}
                 </option>
               ))}
             </select>
@@ -165,11 +174,20 @@ function DetailModal({ open, detail, onClose }) {
             >
               {staffOptions.map((opt) => (
                 <option key={`staff-${opt}`} value={opt}>
-                  {opt === 'all' ? 'All staff' : opt}
+                  {opt === 'all' ? 'All' : opt}
                 </option>
               ))}
             </select>
           ) : null}
+          <button
+            type="button"
+            className="ui-icon-btn kpi-modal-print"
+            onClick={() => printReportTable({ title: modalTitle, columns, rows })}
+            aria-label="Print"
+            title="Print"
+          >
+            <Printer size={18} />
+          </button>
         </div>
         <p className="panel-meta kpi-modal-count">{rows.length} row(s)</p>
       </div>
@@ -188,15 +206,24 @@ function DetailModal({ open, detail, onClose }) {
             <tbody>
               {rows.map((row, idx) => (
                 <tr key={`${detail?.title}-${idx}`}>
-                  {row.map((cell, cIdx) => (
-                    <td key={`${idx}-${cIdx}`}>
-                      {cIdx === row.length - 1 && statusClass(cell) ? (
-                        <span className={`badge ${statusClass(cell)}`}>{cell}</span>
-                      ) : (
-                        cell
-                      )}
-                    </td>
-                  ))}
+                  {row.map((cell, cIdx) => {
+                    const colName = String(columns[cIdx] || '')
+                    const isPhoto = colName.toLowerCase() === 'photo' && typeof cell === 'string' && /^https?:\/\//.test(cell)
+                    return (
+                      <td key={`${idx}-${cIdx}`}>
+                        {isPhoto ? (
+                          <a href={cell} target="_blank" rel="noreferrer" className="att-photo-link">
+                            <img src={cell} alt="Attendance" className="att-photo-thumb" />
+                          </a>
+                        ) : (colName.toLowerCase() === 'status' || cIdx === row.length - 1) &&
+                          statusClass(cell) ? (
+                          <span className={`badge ${statusClass(cell)}`}>{cell}</span>
+                        ) : (
+                          cell
+                        )}
+                      </td>
+                    )
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -218,16 +245,24 @@ export default function DashboardView({
   compact = false,
   showStaffFilter = false,
   staffOptions = [],
+  staffLabel = 'Entered by',
+  showSpentForFilter = false,
+  spentForOptions = [],
+  showBillTypeFilter = false,
+  billTypeOptions = [],
   enablePrint = false,
 }) {
   const [activeDetail, setActiveDetail] = useState(null)
   const kpis = data?.kpis || []
   const showLinks = (data?.links || []).length > 0
   const charts = data?.charts || []
+  const presentGallery = data?.present_gallery || null
+  const presentItems = Array.isArray(presentGallery?.items) ? presentGallery.items : []
   const cardMode = data?.card_mode || (data?.section === 'overview' ? 'tooltip' : 'modal')
   const enableStaff = showStaffFilter || !!data?.staff_filter
   const rangeLabel =
-    filter?.from && filter?.to ? `${filter.from} → ${filter.to}` : ''
+    filter?.label ||
+    (filter?.from && filter?.to ? `${filter.from} – ${filter.to}` : '')
 
   return (
     <div className={`page dash-page ${compact ? 'dash-compact' : ''} ${enablePrint ? 'print-page' : ''}`}>
@@ -258,6 +293,11 @@ export default function DashboardView({
           loading={loading}
           showStaff={enableStaff}
           staffOptions={staffOptions}
+          staffLabel={staffLabel}
+          showSpentFor={showSpentForFilter}
+          spentForOptions={spentForOptions}
+          showBillType={showBillTypeFilter}
+          billTypeOptions={billTypeOptions}
         />
       </div>
 
@@ -274,15 +314,16 @@ export default function DashboardView({
           <div className={`stat-grid ${kpis.length >= 8 ? 'stat-grid-4' : kpis.length <= 4 ? 'stat-grid-4' : ''}`}>
             {kpis.map((kpi) => {
               const clickable = cardMode === 'modal' && kpi.detail
+              const isAlert = !!kpi.alert
               const tipLines = Array.isArray(kpi.tooltip_lines)
-                ? kpi.tooltip_lines.filter(Boolean)
+                ? kpi.tooltip_lines.filter((line) => line != null)
                 : kpi.tooltip
                   ? [kpi.tooltip]
                   : []
               return (
                 <article
                   key={kpi.key || kpi.label}
-                  className={`stat-card tone-${kpi.tone || 'blue'} ${clickable ? 'stat-card-clickable' : ''} ${cardMode === 'tooltip' ? 'stat-card-tip' : ''}`}
+                  className={`stat-card tone-${kpi.tone || 'blue'} ${clickable ? 'stat-card-clickable' : ''} ${cardMode === 'tooltip' ? 'stat-card-tip' : ''} ${isAlert ? 'stat-card-alert' : ''}`}
                   role={clickable ? 'button' : undefined}
                   tabIndex={clickable ? 0 : undefined}
                   onClick={clickable ? () => setActiveDetail(kpi.detail) : undefined}
@@ -298,26 +339,84 @@ export default function DashboardView({
                   }
                 >
                   {cardMode === 'tooltip' && tipLines.length ? (
-                    <div className="stat-card-tooltip" role="tooltip">
+                    <div
+                      className={`stat-card-tooltip ${tipLines.length >= 15 ? 'is-scrollable' : ''}`}
+                      role="tooltip"
+                    >
                       <ul className="stat-card-tooltip-list">
-                        {tipLines.map((line) => (
-                          <li key={line}>{line}</li>
-                        ))}
+                        {tipLines.map((line, idx) => {
+                          const isGap = line === ''
+                          const isHeading = !isGap && !/:\s*\d+\s*$/.test(line)
+                          return (
+                            <li
+                              key={`${kpi.key || kpi.label}-${idx}`}
+                              className={isGap ? 'is-gap' : isHeading ? 'is-heading' : undefined}
+                            >
+                              {line}
+                            </li>
+                          )
+                        })}
                       </ul>
                     </div>
                   ) : null}
                   <p>{kpi.label}</p>
-                  <strong>{formatKpi(kpi)}</strong>
+                  <strong className={Number(kpi.value) < 0 ? 'is-neg' : undefined}>{formatKpi(kpi)}</strong>
                   <span>{kpi.meta}</span>
+                  {isAlert && kpi.alert_text ? (
+                    <em className="stat-card-alert-msg">{kpi.alert_text}</em>
+                  ) : null}
                 </article>
               )
             })}
           </div>
 
+          {presentGallery ? (
+            <section className="panel present-gallery-panel">
+              <div className="panel-head">
+                <h3>{presentGallery.title || 'Present today'}</h3>
+                <span className="panel-meta">{presentItems.length} staff</span>
+              </div>
+              {presentItems.length === 0 ? (
+                <p className="panel-copy">No staff checked in yet.</p>
+              ) : (
+                <div className="scroll-panel present-gallery-scroll">
+                  <div className="present-gallery-grid">
+                    {presentItems.map((item) => (
+                      <article key={item.id || `${item.staff_code}-${item.check_in_at}`} className="present-gallery-card">
+                        {item.photo_url ? (
+                          <a href={item.photo_url} target="_blank" rel="noreferrer" className="present-gallery-photo-wrap">
+                            <img src={item.photo_url} alt={item.name || 'Staff'} className="present-gallery-photo" />
+                          </a>
+                        ) : (
+                          <div className="present-gallery-photo is-empty">No photo</div>
+                        )}
+                        <div className="present-gallery-body">
+                          <strong>{item.name || '—'}</strong>
+                          <span>{item.role || '—'}</span>
+                          <span>{item.staff_code || '—'}</span>
+                          <span>{item.phone || '—'}</span>
+                          <span>{item.check_in_at || '—'}</span>
+                          {item.checked_in_by ? <span>Gate: {item.checked_in_by}</span> : null}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+          ) : null}
+
           {charts.length ? (
             <div className={`chart-grid ${charts.length === 1 ? 'chart-grid-1' : charts.length === 3 ? 'chart-grid-3' : ''}`}>
               {charts.map((chart) => (
-                <BarChart key={chart.id || chart.title} title={chart.title} series={chart.series || []} />
+                <BarChart
+                  key={chart.id || chart.title}
+                  title={chart.title}
+                  series={chart.series || []}
+                  categories={chart.categories || []}
+                  lines={chart.lines || []}
+                  type={chart.type || 'bar'}
+                />
               ))}
             </div>
           ) : null}

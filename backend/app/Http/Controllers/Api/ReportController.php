@@ -17,8 +17,12 @@ use App\Models\MedicineMovement;
 use App\Models\NursingNote;
 use App\Models\Patient;
 use App\Models\Payment;
+use App\Models\FacilityBill;
+use App\Models\PettyExpense;
+use App\Models\StaffAttendance;
 use App\Models\User;
 use App\Models\VisitorLog;
+use App\Support\SecureUpload;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Http\JsonResponse;
@@ -62,6 +66,32 @@ class ReportController extends Controller
                 'months' => range(1, 12),
                 'pharmacy_staff' => $this->staffOptionsByRole(['pharmacist']),
                 'inventory_staff' => $this->staffOptionsByRole(['inventory-manager']),
+                'finance_staff' => $this->staffOptionsByRole(['finance', 'inventory-manager']),
+                'petty_spent_for' => PettyExpense::query()
+                    ->where('status', 'posted')
+                    ->whereNotNull('spent_for')
+                    ->where('spent_for', '!=', '')
+                    ->distinct()
+                    ->orderBy('spent_for')
+                    ->limit(100)
+                    ->pluck('spent_for')
+                    ->values()
+                    ->all(),
+                'facility_bill_types' => collect(FacilityBill::TYPES)
+                    ->merge(
+                        FacilityBill::query()
+                            ->whereNotNull('bill_type')
+                            ->where('bill_type', '!=', '')
+                            ->distinct()
+                            ->pluck('bill_type')
+                    )
+                    ->unique()
+                    ->values()
+                    ->map(fn ($t) => [
+                        'value' => $t,
+                        'label' => FacilityBill::typeLabel($t),
+                    ])
+                    ->all(),
             ],
         ]);
     }
@@ -85,10 +115,12 @@ class ReportController extends Controller
 
         $inventoryLow = InventoryItem::query()
             ->where('status', 'active')
+            ->tracksReorder()
             ->whereColumn('stock_qty', '<=', 'reorder_level')
             ->count();
         $inventoryCritical = InventoryItem::query()
             ->where('status', 'active')
+            ->tracksReorder()
             ->where('stock_qty', '<=', 0)
             ->count();
 
@@ -133,9 +165,11 @@ class ReportController extends Controller
             'section' => [
                 'nullable',
                 'string',
-                Rule::in(['overview', 'patients', 'pharmacy', 'inventory', 'finance', 'visitors', 'staff']),
+                Rule::in(['overview', 'patients', 'pharmacy', 'inventory', 'inventory-petty', 'inventory-bills', 'finance', 'visitors', 'staff']),
             ],
             'created_by' => ['nullable', 'integer', 'exists:users,id'],
+            'spent_for' => ['nullable', 'string', 'max:150'],
+            'bill_type' => ['nullable', 'string', 'max:40'],
         ]);
 
         $to = isset($data['to'])
@@ -145,6 +179,14 @@ class ReportController extends Controller
             ? Carbon::parse($data['from'])->startOfDay()
             : Carbon::create(2000, 1, 1)->startOfDay();
         $createdBy = isset($data['created_by']) ? (int) $data['created_by'] : null;
+        $spentFor = isset($data['spent_for']) ? trim((string) $data['spent_for']) : null;
+        if ($spentFor === '') {
+            $spentFor = null;
+        }
+        $billType = isset($data['bill_type']) ? trim((string) $data['bill_type']) : null;
+        if ($billType === '') {
+            $billType = null;
+        }
 
         if ($from->gt($to)) {
             return response()->json(['message' => 'Invalid date range.'], 422);
@@ -164,6 +206,8 @@ class ReportController extends Controller
                 'patients' => $this->adminPatientsSection($from, $to),
                 'pharmacy' => $this->adminPharmacySection($from, $to, $createdBy),
                 'inventory' => $this->adminInventorySection($from, $to, $createdBy),
+                'inventory-petty' => $this->adminInventoryPettySection($from, $to, $createdBy, $spentFor),
+                'inventory-bills' => $this->adminInventoryBillsSection($from, $to, $createdBy, $billType),
                 'finance' => $this->adminFinanceSection($from, $to),
                 'visitors' => $this->adminVisitorsSection($from, $to),
                 'staff' => $this->adminStaffSection($from, $to),
@@ -279,37 +323,72 @@ class ReportController extends Controller
         $invoicePaidTotal = (float) Invoice::query()->sum('paid_amount');
         $invoiceUnpaidBalance = (float) Invoice::query()->whereIn('status', ['unpaid', 'partial'])->sum('balance');
         $invoicePaidCount = Invoice::query()->where('status', 'paid')->count();
-        $invoiceUnpaidCount = Invoice::query()->where('status', 'unpaid')->count();
-        $invoicePartialCount = Invoice::query()->where('status', 'partial')->count();
-        $outstanding = $invoiceUnpaidBalance;
-        $openInvoices = $invoiceUnpaidCount + $invoicePartialCount;
-        $activeStaff = User::query()->where('is_active', true)->count();
-        $inactiveStaff = User::query()->where('is_active', false)->count();
-        $staffByRole = User::query()
-            ->with('role:id,name')
-            ->where('is_active', true)
-            ->get()
-            ->groupBy(fn (User $u) => $u->role?->name ?: 'No role')
-            ->map->count();
-        $activeMeds = Medicine::query()->where('status', 'active')->count();
-        $lowMedicines = Medicine::query()->where('status', 'active')->whereColumn('stock_qty', '<=', 'reorder_level')->count();
-        $criticalMedicines = Medicine::query()->where('status', 'active')->where('stock_qty', '<=', 0)->count();
-        $healthyMedicines = max(0, $activeMeds - $lowMedicines);
-        $activeInventory = InventoryItem::query()->where('status', 'active')->count();
-        $lowInventory = InventoryItem::query()->where('status', 'active')->whereColumn('stock_qty', '<=', 'reorder_level')->count();
-        $criticalInventory = InventoryItem::query()->where('status', 'active')->where('stock_qty', '<=', 0)->count();
-        $visitorsInRange = VisitorLog::query()->whereBetween('check_in_at', [$from, $to])->count();
-        $visitorsInside = VisitorLog::query()->where('status', 'checked_in')->count();
-        $visitorsOut = VisitorLog::query()
-            ->whereBetween('check_in_at', [$from, $to])
-            ->where('status', 'checked_out')
+        $invoiceUnpaidCount = Invoice::query()
+            ->where('status', 'unpaid')
+            ->where('paid_amount', '<=', 0)
             ->count();
-        $partySize = (int) VisitorLog::query()->whereBetween('check_in_at', [$from, $to])->sum('party_size');
+        $invoiceInstallmentCount = Invoice::query()
+            ->where('status', 'unpaid')
+            ->where('paid_amount', '>', 0)
+            ->where('balance', '>', 0)
+            ->count();
+        $outstanding = $invoiceUnpaidBalance;
+        $openInvoices = $invoiceUnpaidCount + $invoiceInstallmentCount;
+        // Staff attendance is day-based (not a range sum).
+        $staffDay = $from->isSameDay($to) ? $from->copy() : now();
+        $staffDayStr = $staffDay->toDateString();
+        $presentToday = StaffAttendance::query()
+            ->with(['user.role:id,name'])
+            ->whereDate('attendance_date', $staffDayStr)
+            ->get();
+        $presentCount = $presentToday->count();
+        $staffByRole = $presentToday
+            ->groupBy(fn (StaffAttendance $a) => $a->user?->role?->name ?: 'No role')
+            ->map->count()
+            ->sortDesc();
+        $lowMedicines = Medicine::query()->where('status', 'active')->whereColumn('stock_qty', '<=', 'reorder_level')->count();
+        $lowInventory = InventoryItem::query()
+            ->where('status', 'active')
+            ->tracksReorder()
+            ->whereColumn('stock_qty', '<=', 'reorder_level')
+            ->count();
+        $visitorsInRange = (int) VisitorLog::query()->whereBetween('check_in_at', [$from, $to])->sum('party_size');
+        $visitorsInside = (int) VisitorLog::query()->where('status', 'checked_in')->sum('party_size');
+        $visitorsForPatients = (int) VisitorLog::query()
+            ->whereBetween('check_in_at', [$from, $to])
+            ->whereNotNull('patient_id')
+            ->sum('party_size');
+        $visitorsWalkIn = max(0, $visitorsInRange - $visitorsForPatients);
         $admissionsInRange = Admission::query()->whereBetween('admitted_at', [$from, $to])->count();
         $activeAdmissions = Admission::query()->where('status', 'active')->count();
         $dischargesInRange = Discharge::query()->whereBetween('discharged_at', [$from, $to])->count();
         $dispensesInRange = MedicineDispense::query()->whereBetween('dispensed_at', [$from, $to])->count();
-        $dispenseQty = (float) MedicineDispense::query()->whereBetween('dispensed_at', [$from, $to])->sum('quantity');
+        $dispenseByCategory = $this->collapseCategoryCounts(
+            MedicineDispense::query()
+                ->join('medicines', 'medicines.id', '=', 'medicine_dispenses.medicine_id')
+                ->whereBetween('medicine_dispenses.dispensed_at', [$from, $to])
+                ->where('medicine_dispenses.status', 'dispensed')
+                ->selectRaw('medicines.category as category, COUNT(*) as c')
+                ->groupBy('medicines.category')
+                ->get()
+        );
+        $lowMedsByCategory = $this->collapseCategoryCounts(
+            Medicine::query()
+                ->where('status', 'active')
+                ->whereColumn('stock_qty', '<=', 'reorder_level')
+                ->selectRaw('category, COUNT(*) as c')
+                ->groupBy('category')
+                ->get()
+        );
+        $lowInvByCategory = $this->collapseCategoryCounts(
+            InventoryItem::query()
+                ->where('status', 'active')
+                ->tracksReorder()
+                ->whereColumn('stock_qty', '<=', 'reorder_level')
+                ->selectRaw('category, COUNT(*) as c')
+                ->groupBy('category')
+                ->get()
+        );
         $money = fn (float $n) => 'PKR '.number_format($n, 0);
 
         $collectionLines = [
@@ -321,12 +400,13 @@ class ReportController extends Controller
             $collectionLines[] = ucfirst((string) $method).': '.$money((float) $row->total)." ({$row->c})";
         }
 
-        $staffLines = [
-            "Active: {$activeStaff}",
-            "Inactive: {$inactiveStaff}",
-        ];
-        foreach ($staffByRole as $roleName => $count) {
-            $staffLines[] = "{$roleName}: {$count}";
+        $staffLines = ['Present'];
+        if ($staffByRole->isEmpty()) {
+            $staffLines[] = 'None: 0';
+        } else {
+            foreach ($staffByRole as $roleName => $count) {
+                $staffLines[] = "{$roleName}: {$count}";
+            }
         }
 
         return [
@@ -335,15 +415,15 @@ class ReportController extends Controller
             'kpis' => [
                 [
                     'key' => 'total_patients',
-                    'label' => 'Total patients',
+                    'label' => 'All patients',
                     'value' => $totalPatients,
-                    'meta' => "{$admittedPatients} admitted",
+                    'meta' => 'Full registry',
                     'tone' => 'orange',
                     'tooltip_lines' => [
+                        'All patient records (any date)',
                         "Registered: {$registeredPatients}",
-                        "Admitted: {$admittedPatients}",
+                        "Admitted now: {$admittedPatients}",
                         "Discharged: {$dischargedPatients}",
-                        "Total: {$totalPatients}",
                     ],
                 ],
                 [
@@ -376,23 +456,24 @@ class ReportController extends Controller
                     'key' => 'admissions',
                     'label' => 'Admissions',
                     'value' => $admissionsInRange,
-                    'meta' => 'Selected range',
+                    'meta' => 'In selected period',
                     'tone' => 'blue',
                     'tooltip_lines' => [
-                        "In range: {$admissionsInRange}",
-                        "Active stays: {$activeAdmissions}",
-                        "Discharges in range: {$dischargesInRange}",
+                        'Bed admissions in selected period',
+                        "Admissions: {$admissionsInRange}",
+                        "Active stays now: {$activeAdmissions}",
+                        "Discharges in period: {$dischargesInRange}",
                     ],
                 ],
                 [
                     'key' => 'discharges',
                     'label' => 'Discharges',
                     'value' => $dischargesInRange,
-                    'meta' => 'Selected range',
+                    'meta' => $this->rangeLabel($from, $to),
                     'tone' => 'purple',
                     'tooltip_lines' => [
-                        "Discharges in range: {$dischargesInRange}",
-                        "Admissions in range: {$admissionsInRange}",
+                        "Discharges: {$dischargesInRange}",
+                        "New admissions: {$admissionsInRange}",
                         'Net change: '.($admissionsInRange - $dischargesInRange),
                     ],
                 ],
@@ -407,17 +488,17 @@ class ReportController extends Controller
                 ],
                 [
                     'key' => 'outstanding',
-                    'label' => 'Outstanding',
+                    'label' => 'Fees outstanding',
                     'value' => $outstanding,
                     'money' => true,
-                    'meta' => "{$openInvoices} invoice(s)",
+                    'meta' => "{$openInvoices} open invoice(s)",
                     'tone' => 'red',
                     'tooltip_lines' => [
-                        'Total paid: '.$money($invoicePaidTotal),
-                        'Total unpaid: '.$money($invoiceUnpaidBalance),
-                        "Paid invoices: {$invoicePaidCount}",
-                        "Unpaid: {$invoiceUnpaidCount}",
-                        "Partial: {$invoicePartialCount}",
+                        'Still unpaid balance: '.$money($invoiceUnpaidBalance),
+                        'Already collected on invoices: '.$money($invoicePaidTotal),
+                        "Fully paid invoices: {$invoicePaidCount}",
+                        "Unpaid invoices: {$invoiceUnpaidCount}",
+                        "Installments in progress: {$invoiceInstallmentCount}",
                     ],
                 ],
                 [
@@ -427,10 +508,10 @@ class ReportController extends Controller
                     'meta' => "{$visitorsInside} inside now",
                     'tone' => 'orange',
                     'tooltip_lines' => [
-                        "Logged in range: {$visitorsInRange}",
-                        "Currently inside: {$visitorsInside}",
-                        "Checked out: {$visitorsOut}",
-                        "Party size: {$partySize}",
+                        "Total visitors: {$visitorsInRange}",
+                        "For patients: {$visitorsForPatients}",
+                        "Walk-in: {$visitorsWalkIn}",
+                        "Inside now: {$visitorsInside}",
                     ],
                 ],
                 [
@@ -439,13 +520,18 @@ class ReportController extends Controller
                     'value' => $dispensesInRange,
                     'meta' => "Low meds {$lowMedicines}",
                     'tone' => 'blue',
-                    'tooltip_lines' => [
-                        "Dispenses: {$dispensesInRange}",
-                        "Qty dispensed: {$dispenseQty}",
-                        "Healthy stock: {$healthyMedicines}",
-                        "Low: {$lowMedicines}",
-                        "Critical: {$criticalMedicines}",
-                    ],
+                    'alert' => $lowMedicines > 0,
+                    'alert_text' => $lowMedicines > 0
+                        ? "Low medicine stock ({$lowMedicines}) — restock in Pharmacy"
+                        : null,
+                    'tooltip_lines' => $this->categoryTooltipLines(
+                        'Dispenses',
+                        $dispenseByCategory,
+                        fn ($cat) => Medicine::categoryLabel($cat),
+                        'Low Stock',
+                        $lowMedsByCategory,
+                        fn ($cat) => Medicine::categoryLabel($cat),
+                    ),
                 ],
                 [
                     'key' => 'inventory',
@@ -453,18 +539,21 @@ class ReportController extends Controller
                     'value' => $lowInventory,
                     'meta' => 'Needs restock',
                     'tone' => 'red',
-                    'tooltip_lines' => [
-                        "Active items: {$activeInventory}",
-                        "Low stock: {$lowInventory}",
-                        "Critical: {$criticalInventory}",
-                        'Healthy: '.max(0, $activeInventory - $lowInventory),
-                    ],
+                    'alert' => $lowInventory > 0,
+                    'alert_text' => $lowInventory > 0
+                        ? "Low inventory ({$lowInventory}) — restock items"
+                        : null,
+                    'tooltip_lines' => $this->categoryTooltipLines(
+                        'Low Stock',
+                        $lowInvByCategory,
+                        fn ($cat) => InventoryItem::categoryLabel($cat),
+                    ),
                 ],
                 [
                     'key' => 'staff',
-                    'label' => 'Active staff',
-                    'value' => $activeStaff,
-                    'meta' => "Inactive {$inactiveStaff}",
+                    'label' => 'Staff present',
+                    'value' => $presentCount,
+                    'meta' => $staffDay->isToday() ? 'Today' : ('On '.$staffDay->format('j M Y')),
                     'tone' => 'purple',
                     'tooltip_lines' => $staffLines,
                 ],
@@ -472,14 +561,14 @@ class ReportController extends Controller
                     'key' => 'open_invoices',
                     'label' => 'Open invoices',
                     'value' => $openInvoices,
-                    'meta' => 'Unpaid / partial',
+                    'meta' => 'Unpaid / installments',
                     'tone' => 'orange',
                     'tooltip_lines' => [
-                        'Total paid: '.$money($invoicePaidTotal),
-                        'Total unpaid: '.$money($invoiceUnpaidBalance),
-                        "Paid invoices: {$invoicePaidCount}",
-                        "Unpaid invoices: {$invoiceUnpaidCount}",
-                        "Partial invoices: {$invoicePartialCount}",
+                        "Open invoices: {$openInvoices}",
+                        "Not started (unpaid): {$invoiceUnpaidCount}",
+                        "Installments in progress: {$invoiceInstallmentCount}",
+                        "Fully paid: {$invoicePaidCount}",
+                        'Outstanding balance: '.$money($invoiceUnpaidBalance),
                     ],
                 ],
             ],
@@ -500,7 +589,7 @@ class ReportController extends Controller
                     'id' => 'visitors',
                     'title' => 'Visitors trend',
                     'type' => 'bar',
-                    'series' => $this->countSeries(VisitorLog::query(), 'check_in_at', $from, $to),
+                    'series' => $this->sumSeries(VisitorLog::query(), 'check_in_at', 'party_size', $from, $to),
                 ],
             ],
         ];
@@ -509,9 +598,7 @@ class ReportController extends Controller
     private function adminPatientsSection(Carbon $from, Carbon $to): array
     {
         $totalBeds = Bed::query()->where('status', '!=', 'discarded')->count();
-        $occupiedBeds = Bed::query()->where('status', 'occupied')->count();
         $availableBeds = Bed::query()->where('status', 'available')->count();
-        $occupancy = $totalBeds > 0 ? round(($occupiedBeds / $totalBeds) * 100, 1) : 0;
         $totalPatients = Patient::query()->count();
         $admitted = Patient::query()->where('status', 'admitted')->count();
         $registered = Patient::query()->where('status', 'registered')->count();
@@ -521,23 +608,23 @@ class ReportController extends Controller
 
         $patients = Patient::query()
             ->latest('id')
-            ->limit(200)
+            ->limit(300)
             ->get(['id', 'patient_code', 'first_name', 'last_name', 'phone', 'cnic', 'status', 'created_at']);
 
         $beds = Bed::query()
             ->with('room:id,name,code')
             ->orderBy('bed_code')
-            ->limit(200)
+            ->limit(300)
             ->get();
 
         $admissionRows = Admission::query()
             ->with(['patient:id,first_name,last_name,patient_code', 'bed:id,bed_code'])
             ->whereBetween('admitted_at', [$from, $to])
             ->latest('admitted_at')
-            ->limit(100)
+            ->limit(150)
             ->get();
 
-        $patientRows = $patients->map(function (Patient $p) {
+        $mapPatient = function (Patient $p) {
             $name = trim(($p->first_name ?? '').' '.($p->last_name ?? ''));
 
             return [
@@ -547,7 +634,14 @@ class ReportController extends Controller
                 $p->cnic ?: '—',
                 $p->status,
             ];
-        })->values()->all();
+        };
+
+        $allPatientRows = $patients->map($mapPatient)->values()->all();
+        $registeredRows = $patients->where('status', 'registered')->map($mapPatient)->values()->all();
+        $admittedRows = $patients->where('status', 'admitted')->map($mapPatient)->values()->all();
+        $dischargedRows = $patients->where('status', 'discharged')->map($mapPatient)->values()->all();
+        $occupiedBeds = Bed::query()->where('status', 'occupied')->count();
+        $occupancyPct = $totalBeds > 0 ? round(($occupiedBeds / $totalBeds) * 100, 1) : 0;
 
         $bedRows = $beds->map(fn (Bed $b) => [
             $b->bed_code,
@@ -567,80 +661,102 @@ class ReportController extends Controller
             ];
         })->values()->all();
 
+        $patientDetail = [
+            'columns' => ['Code', 'Name', 'Phone', 'CNIC', 'Status'],
+            'allow_filter' => false,
+            'search_placeholder' => 'Search by name',
+        ];
+
         return [
             'title' => 'Patients & beds overview',
             'card_mode' => 'modal',
             'kpis' => [
                 [
-                    'key' => 'total',
-                    'label' => 'Total patients',
+                    'key' => 'all_patients',
+                    'label' => 'All patients',
                     'value' => $totalPatients,
-                    'meta' => "Discharged {$dischargedStatus}",
+                    'meta' => "{$admitted} admitted",
                     'tone' => 'blue',
-                    'detail' => [
+                    'detail' => array_merge($patientDetail, [
                         'title' => 'All patients',
-                        'columns' => ['Code', 'Name', 'Phone', 'CNIC', 'Status'],
-                        'filter_column' => 'Status',
-                        'rows' => $patientRows,
-                    ],
+                        'rows' => $allPatientRows,
+                    ]),
+                ],
+                [
+                    'key' => 'registered',
+                    'label' => 'Registered',
+                    'value' => $registered,
+                    'meta' => 'Not admitted yet',
+                    'tone' => 'orange',
+                    'detail' => array_merge($patientDetail, [
+                        'title' => 'Registered patients',
+                        'rows' => $registeredRows,
+                    ]),
                 ],
                 [
                     'key' => 'admitted',
                     'label' => 'Admitted',
                     'value' => $admitted,
-                    'meta' => "Registered {$registered}",
+                    'meta' => "of {$totalPatients} patients",
                     'tone' => 'orange',
-                    'detail' => [
-                        'title' => 'Patients by status',
-                        'columns' => ['Code', 'Name', 'Phone', 'CNIC', 'Status'],
-                        'filter_column' => 'Status',
-                        'rows' => $patientRows,
-                    ],
+                    'detail' => array_merge($patientDetail, [
+                        'title' => 'Admitted patients',
+                        'rows' => $admittedRows,
+                    ]),
                 ],
                 [
-                    'key' => 'available',
-                    'label' => 'Beds free',
-                    'value' => $availableBeds,
-                    'meta' => "{$occupancy}% occupied",
+                    'key' => 'discharged',
+                    'label' => 'Discharged',
+                    'value' => $dischargedStatus,
+                    'meta' => "of {$totalPatients} patients",
+                    'tone' => 'purple',
+                    'detail' => array_merge($patientDetail, [
+                        'title' => 'Discharged patients',
+                        'rows' => $dischargedRows,
+                    ]),
+                ],
+                [
+                    'key' => 'beds',
+                    'label' => 'Beds',
+                    'value' => $totalBeds,
+                    'meta' => "{$availableBeds} free · {$occupancyPct}% full",
                     'tone' => 'green',
                     'detail' => [
                         'title' => 'Beds',
                         'columns' => ['Bed', 'Room', 'Status'],
                         'filter_column' => 'Status',
+                        'allow_filter' => true,
+                        'search_placeholder' => 'Search by bed or room',
                         'rows' => $bedRows,
                     ],
                 ],
                 [
-                    'key' => 'admissions',
-                    'label' => 'Admissions',
+                    'key' => 'new_admissions',
+                    'label' => 'New admissions',
                     'value' => $admissions,
-                    'meta' => "Discharges {$discharges}",
-                    'tone' => 'purple',
+                    'meta' => "{$discharges} discharges",
+                    'tone' => 'blue',
                     'detail' => [
-                        'title' => 'Admissions in range',
+                        'title' => 'New admissions',
                         'columns' => ['Code', 'Patient', 'Bed', 'Status', 'Admitted'],
-                        'filter_column' => 'Status',
+                        'allow_filter' => false,
+                        'search_placeholder' => 'Search by name',
                         'rows' => $admissionDetailRows,
                     ],
                 ],
             ],
             'charts' => [
                 [
-                    'id' => 'beds',
-                    'title' => 'Bed status',
+                    'id' => 'patient-status',
+                    'title' => 'Patients by status',
                     'type' => 'bar',
                     'series' => [
-                        ['label' => 'Occupied', 'value' => $occupiedBeds],
-                        ['label' => 'Available', 'value' => $availableBeds],
-                        ['label' => 'Other', 'value' => max(0, $totalBeds - $occupiedBeds - $availableBeds)],
+                        ['label' => 'Registered', 'value' => $registered],
+                        ['label' => 'Admitted', 'value' => $admitted],
+                        ['label' => 'Discharged', 'value' => $dischargedStatus],
                     ],
                 ],
-                [
-                    'id' => 'flow',
-                    'title' => 'Admissions trend',
-                    'type' => 'bar',
-                    'series' => $this->countSeries(Admission::query(), 'admitted_at', $from, $to),
-                ],
+                $this->admissionsYearCompareChart(),
             ],
         ];
     }
@@ -675,7 +791,6 @@ class ReportController extends Controller
         $stockInQty = (int) (clone $stockInBase)->sum('quantity');
 
         $stockRows = (clone $medQuery)
-            ->with('creator:id,name')
             ->orderBy('name')
             ->limit(200)
             ->get();
@@ -711,10 +826,13 @@ class ReportController extends Controller
                 $m->name,
                 trim($m->stock_qty.' '.($m->unit ?: '')),
                 (string) $m->reorder_level,
-                $m->creator?->name ?: '—',
                 $status,
             ];
         })->values()->all();
+
+        $healthyDetailRows = array_values(array_filter($medicineDetailRows, fn ($r) => $r[4] === 'Good'));
+        $lowDetailRows = array_values(array_filter($medicineDetailRows, fn ($r) => in_array($r[4], ['Low', 'Critical'], true)));
+        $criticalDetailRows = array_values(array_filter($medicineDetailRows, fn ($r) => $r[4] === 'Critical'));
 
         $dispenseDetailRows = $dispenseRows->map(function (MedicineDispense $d) {
             $patient = trim(($d->patient?->first_name ?? '').' '.($d->patient?->last_name ?? ''));
@@ -762,25 +880,24 @@ class ReportController extends Controller
                     'tone' => 'blue',
                     'detail' => [
                         'title' => 'Medicines',
-                        'columns' => ['Code', 'Name', 'Qty', 'Reorder', 'Recorded by', 'Status'],
-                        'filter_column' => 'Status',
-                        'staff_filter_column' => 'Recorded by',
+                        'columns' => ['Code', 'Name', 'Qty', 'Reorder', 'Status'],
+                        'allow_filter' => false,
+                        'search_placeholder' => 'Search by name',
                         'rows' => $medicineDetailRows,
                     ],
                 ],
                 [
                     'key' => 'healthy',
                     'label' => 'Healthy stock',
-                    'value' => $healthyPct,
-                    'suffix' => '%',
-                    'meta' => "{$healthy} above reorder",
+                    'value' => $healthy,
+                    'meta' => $totalMeds > 0 ? "{$healthyPct}% of active" : 'Above reorder',
                     'tone' => 'green',
                     'detail' => [
-                        'title' => 'Medicines',
-                        'columns' => ['Code', 'Name', 'Qty', 'Reorder', 'Recorded by', 'Status'],
-                        'filter_column' => 'Status',
-                        'staff_filter_column' => 'Recorded by',
-                        'rows' => $medicineDetailRows,
+                        'title' => 'Healthy stock',
+                        'columns' => ['Code', 'Name', 'Qty', 'Reorder', 'Status'],
+                        'allow_filter' => false,
+                        'search_placeholder' => 'Search by name',
+                        'rows' => $healthyDetailRows,
                     ],
                 ],
                 [
@@ -789,12 +906,16 @@ class ReportController extends Controller
                     'value' => $low,
                     'meta' => 'At / below reorder',
                     'tone' => 'orange',
+                    'alert' => $low > 0,
+                    'alert_text' => $low > 0
+                        ? "{$low} medicine(s) need restock"
+                        : null,
                     'detail' => [
-                        'title' => 'Stock alerts',
-                        'columns' => ['Code', 'Name', 'Qty', 'Reorder', 'Recorded by', 'Status'],
-                        'filter_column' => 'Status',
-                        'staff_filter_column' => 'Recorded by',
-                        'rows' => array_values(array_filter($medicineDetailRows, fn ($r) => in_array($r[5], ['Low', 'Critical'], true))),
+                        'title' => 'Low stock',
+                        'columns' => ['Code', 'Name', 'Qty', 'Reorder', 'Status'],
+                        'allow_filter' => false,
+                        'search_placeholder' => 'Search by name',
+                        'rows' => $lowDetailRows,
                     ],
                 ],
                 [
@@ -803,12 +924,16 @@ class ReportController extends Controller
                     'value' => $critical,
                     'meta' => 'Out of stock',
                     'tone' => 'red',
+                    'alert' => $critical > 0,
+                    'alert_text' => $critical > 0
+                        ? "{$critical} medicine(s) out of stock"
+                        : null,
                     'detail' => [
                         'title' => 'Critical medicines',
-                        'columns' => ['Code', 'Name', 'Qty', 'Reorder', 'Recorded by', 'Status'],
-                        'filter_column' => 'Status',
-                        'staff_filter_column' => 'Recorded by',
-                        'rows' => array_values(array_filter($medicineDetailRows, fn ($r) => $r[5] === 'Critical')),
+                        'columns' => ['Code', 'Name', 'Qty', 'Reorder', 'Status'],
+                        'allow_filter' => false,
+                        'search_placeholder' => 'Search by name',
+                        'rows' => $criticalDetailRows,
                     ],
                 ],
                 [
@@ -820,8 +945,9 @@ class ReportController extends Controller
                     'detail' => [
                         'title' => 'Medicine stock in',
                         'columns' => ['Code', 'Medicine', 'Qty', 'Batch', 'Recorded by', 'When'],
-                        'filter_column' => 'Recorded by',
+                        'allow_filter' => false,
                         'staff_filter_column' => 'Recorded by',
+                        'search_placeholder' => 'Search by medicine',
                         'rows' => $stockInDetailRows,
                     ],
                 ],
@@ -834,8 +960,9 @@ class ReportController extends Controller
                     'detail' => [
                         'title' => 'Dispenses in range',
                         'columns' => ['Code', 'Medicine', 'Patient', 'Qty', 'Recorded by', 'Date'],
-                        'filter_column' => 'Recorded by',
+                        'allow_filter' => false,
                         'staff_filter_column' => 'Recorded by',
+                        'search_placeholder' => 'Search by medicine',
                         'rows' => $dispenseDetailRows,
                     ],
                 ],
@@ -864,27 +991,30 @@ class ReportController extends Controller
             $moveBase->where('created_by', $createdBy);
         }
 
-        $stockIn = (float) (clone $moveBase)->where('type', 'in')->sum('quantity');
-        $stockOut = (float) (clone $moveBase)->where('type', 'out')->sum('quantity');
         $movesIn = (clone $moveBase)->where('type', 'in')->count();
         $movesOut = (clone $moveBase)->where('type', 'out')->count();
-        $moves = (clone $moveBase)->count();
+        $useForRows = (clone $moveBase)
+            ->where('type', 'out')
+            ->whereNotNull('used_for')
+            ->where('used_for', '!=', '')
+            ->count();
+        $useForReasons = (int) (clone $moveBase)
+            ->where('type', 'out')
+            ->whereNotNull('used_for')
+            ->where('used_for', '!=', '')
+            ->selectRaw('COUNT(DISTINCT used_for) as c')
+            ->value('c');
 
         $itemQuery = InventoryItem::query()->where('status', 'active');
         if ($createdBy) {
             $itemQuery->where('created_by', $createdBy);
         }
-        $low = (clone $itemQuery)->whereColumn('stock_qty', '<=', 'reorder_level')->count();
+        $reorderQuery = (clone $itemQuery)->tracksReorder();
+        $low = (clone $reorderQuery)->whereColumn('stock_qty', '<=', 'reorder_level')->count();
+        $critical = (clone $reorderQuery)->where('stock_qty', '<=', 0)->count();
         $activeItems = (clone $itemQuery)->count();
-        $peopleOut = (int) (clone $moveBase)
-            ->where('type', 'out')
-            ->whereNotNull('issued_to')
-            ->where('issued_to', '!=', '')
-            ->selectRaw('COUNT(DISTINCT issued_to) as c')
-            ->value('c');
 
         $items = (clone $itemQuery)
-            ->with('creator:id,name')
             ->orderBy('name')
             ->limit(200)
             ->get();
@@ -898,24 +1028,31 @@ class ReportController extends Controller
             ->get();
 
         $itemRows = $items->map(function (InventoryItem $i) {
-            $status = (float) $i->stock_qty <= 0
-                ? 'Critical'
-                : ((float) $i->stock_qty <= (float) $i->reorder_level ? 'Low' : 'Good');
-
             return [
                 $i->item_code,
                 $i->name,
                 $i->category ?: '—',
                 $this->qtyLabel((float) $i->stock_qty, $i->unit),
                 (string) $i->reorder_level,
-                $i->creator?->name ?: '—',
-                $status,
+                $i->stockStatusLabel(),
             ];
         })->values()->all();
 
-        $movementDetail = $this->inventoryMovementDetail($moveRows);
-        $inDetail = $this->inventoryMovementDetail($moveRows->where('type', 'in')->values());
-        $outDetail = $this->inventoryMovementDetail($moveRows->where('type', 'out')->values());
+        $inDetail = $this->inventoryMovementDetail(
+            $moveRows->where('type', 'in')->values(),
+            'Stock in',
+            false
+        );
+        $outDetail = $this->inventoryMovementDetail(
+            $moveRows->where('type', 'out')->values(),
+            'Stock out',
+            false
+        );
+        $useDetail = $this->inventoryUseForDetail(
+            $moveRows->where('type', 'out')
+                ->filter(fn (InventoryMovement $m) => filled($m->used_for))
+                ->values()
+        );
 
         $outTrend = InventoryMovement::query()->where('type', 'out')->whereBetween('moved_at', [$from, $to]);
         $inTrend = InventoryMovement::query()->where('type', 'in')->whereBetween('moved_at', [$from, $to]);
@@ -937,35 +1074,45 @@ class ReportController extends Controller
                     'tone' => 'blue',
                     'detail' => [
                         'title' => 'Inventory items',
-                        'columns' => ['Code', 'Name', 'Category', 'Qty', 'Reorder', 'Recorded by', 'Status'],
-                        'filter_column' => 'Status',
-                        'staff_filter_column' => 'Recorded by',
+                        'columns' => ['Code', 'Name', 'Category', 'Qty', 'Reorder', 'Status'],
+                        'allow_filter' => false,
+                        'search_placeholder' => 'Search by name',
                         'rows' => $itemRows,
                     ],
                 ],
                 [
                     'key' => 'in',
-                    'label' => 'Stock IN qty',
-                    'value' => $stockIn,
-                    'meta' => "{$movesIn} entries",
+                    'label' => 'Stock in',
+                    'value' => $movesIn,
+                    'meta' => 'Entries',
                     'tone' => 'green',
                     'detail' => $inDetail,
                 ],
                 [
                     'key' => 'out',
-                    'label' => 'Stock OUT qty',
-                    'value' => $stockOut,
-                    'meta' => "{$movesOut} entries · {$peopleOut} people",
+                    'label' => 'Stock out',
+                    'value' => $movesOut,
+                    'meta' => 'Entries',
                     'tone' => 'orange',
                     'detail' => $outDetail,
                 ],
                 [
-                    'key' => 'moves',
-                    'label' => 'All movements',
-                    'value' => $moves,
-                    'meta' => 'Selected range',
-                    'tone' => 'purple',
-                    'detail' => $movementDetail,
+                    'key' => 'critical',
+                    'label' => 'Critical',
+                    'value' => $critical,
+                    'meta' => 'Zero stock',
+                    'tone' => 'red',
+                    'alert' => $critical > 0,
+                    'alert_text' => $critical > 0
+                        ? "{$critical} inventory item(s) out of stock"
+                        : null,
+                    'detail' => [
+                        'title' => 'Critical items',
+                        'columns' => ['Code', 'Name', 'Category', 'Qty', 'Reorder', 'Status'],
+                        'allow_filter' => false,
+                        'search_placeholder' => 'Search by name',
+                        'rows' => array_values(array_filter($itemRows, fn ($r) => $r[5] === 'Critical')),
+                    ],
                 ],
                 [
                     'key' => 'low',
@@ -973,21 +1120,25 @@ class ReportController extends Controller
                     'value' => $low,
                     'meta' => 'Needs restock',
                     'tone' => 'red',
+                    'alert' => $low > 0,
+                    'alert_text' => $low > 0
+                        ? "{$low} inventory item(s) need restock"
+                        : null,
                     'detail' => [
                         'title' => 'Low / critical stock',
-                        'columns' => ['Code', 'Name', 'Category', 'Qty', 'Reorder', 'Recorded by', 'Status'],
-                        'filter_column' => 'Status',
-                        'staff_filter_column' => 'Recorded by',
-                        'rows' => array_values(array_filter($itemRows, fn ($r) => in_array($r[6], ['Low', 'Critical'], true))),
+                        'columns' => ['Code', 'Name', 'Category', 'Qty', 'Reorder', 'Status'],
+                        'allow_filter' => false,
+                        'search_placeholder' => 'Search by name',
+                        'rows' => array_values(array_filter($itemRows, fn ($r) => in_array($r[5], ['Low', 'Critical'], true))),
                     ],
                 ],
                 [
-                    'key' => 'users',
-                    'label' => 'People issued',
-                    'value' => $peopleOut,
-                    'meta' => 'Stock OUT users',
+                    'key' => 'use_for',
+                    'label' => 'Use for',
+                    'value' => $useForRows,
+                    'meta' => "{$useForReasons} reason(s)",
                     'tone' => 'blue',
-                    'detail' => $outDetail,
+                    'detail' => $useDetail,
                 ],
             ],
             'charts' => [
@@ -995,13 +1146,13 @@ class ReportController extends Controller
                     'id' => 'out',
                     'title' => 'Stock OUT trend',
                     'type' => 'bar',
-                    'series' => $this->sumSeries($outTrend, 'moved_at', 'quantity', $from, $to),
+                    'series' => $this->countSeries($outTrend, 'moved_at', $from, $to),
                 ],
                 [
                     'id' => 'in',
                     'title' => 'Stock IN trend',
                     'type' => 'bar',
-                    'series' => $this->sumSeries($inTrend, 'moved_at', 'quantity', $from, $to),
+                    'series' => $this->countSeries($inTrend, 'moved_at', $from, $to),
                 ],
             ],
         ];
@@ -1009,13 +1160,19 @@ class ReportController extends Controller
 
     private function adminVisitorsSection(Carbon $from, Carbon $to): array
     {
-        $visitors = VisitorLog::query()->whereBetween('check_in_at', [$from, $to])->count();
-        $checkedIn = VisitorLog::query()->where('status', 'checked_in')->count();
-        $checkedOut = VisitorLog::query()
-            ->whereBetween('check_in_at', [$from, $to])
-            ->where('status', 'checked_out')
-            ->count();
-        $partySize = (int) VisitorLog::query()->whereBetween('check_in_at', [$from, $to])->sum('party_size');
+        $base = VisitorLog::query()->whereBetween('check_in_at', [$from, $to]);
+
+        $totalHeads = (int) (clone $base)->sum('party_size');
+        $forPatients = (int) (clone $base)->whereNotNull('patient_id')->sum('party_size');
+        $walkIn = (int) (clone $base)->whereNull('patient_id')->sum('party_size');
+
+        $insideRowsQuery = VisitorLog::query()
+            ->with('patient:id,first_name,last_name,patient_code')
+            ->where('status', 'checked_in')
+            ->latest('check_in_at')
+            ->limit(100)
+            ->get();
+        $insideHeads = (int) $insideRowsQuery->sum(fn (VisitorLog $v) => (int) ($v->party_size ?? 1));
 
         $rows = VisitorLog::query()
             ->with('patient:id,first_name,last_name,patient_code')
@@ -1024,86 +1181,102 @@ class ReportController extends Controller
             ->limit(200)
             ->get();
 
-        $inside = VisitorLog::query()
-            ->with('patient:id,first_name,last_name,patient_code')
-            ->where('status', 'checked_in')
-            ->latest('check_in_at')
-            ->limit(100)
-            ->get();
-
-        $logRows = $rows->map(function (VisitorLog $v) {
+        $mapRow = function (VisitorLog $v) {
             $patient = trim(($v->patient?->first_name ?? '').' '.($v->patient?->last_name ?? ''));
 
             return [
+                $v->visit_code ?? ('#'.$v->id),
                 $v->visitor_name,
-                $patient !== '' ? $patient : ($v->patient?->patient_code ?: '—'),
+                $v->cnic ?: '—',
                 (string) ($v->party_size ?? 1),
-                $v->status,
-                optional($v->check_in_at)->toDateString() ?: '—',
-            ];
-        })->values()->all();
-
-        $insideRows = $inside->map(function (VisitorLog $v) {
-            $patient = trim(($v->patient?->first_name ?? '').' '.($v->patient?->last_name ?? ''));
-
-            return [
-                $v->visitor_name,
                 $patient !== '' ? $patient : ($v->patient?->patient_code ?: '—'),
-                (string) ($v->party_size ?? 1),
-                optional($v->check_in_at)->toDateTimeString() ?: '—',
+                optional($v->check_in_at)->format('Y-m-d H:i') ?: '—',
             ];
-        })->values()->all();
+        };
+
+        $allRows = $rows->map($mapRow)->values()->all();
+        $patientRows = $rows->whereNotNull('patient_id')->map($mapRow)->values()->all();
+        $walkInRows = $rows->whereNull('patient_id')->map($mapRow)->values()->all();
+        $insideRows = $insideRowsQuery->map($mapRow)->values()->all();
+
+        $listCols = ['Code', 'Visitor', 'CNIC', 'Visitors', 'Patient', 'Check-in'];
 
         return [
             'title' => 'Visitors overview',
             'card_mode' => 'modal',
             'kpis' => [
                 [
-                    'key' => 'visitors',
-                    'label' => 'Visitors logged',
-                    'value' => $visitors,
-                    'meta' => "Checked out {$checkedOut}",
+                    'key' => 'total',
+                    'label' => 'Total visitors',
+                    'value' => $totalHeads,
+                    'meta' => $this->rangeLabel($from, $to),
                     'tone' => 'blue',
                     'detail' => [
                         'title' => 'Visitor logs',
-                        'columns' => ['Visitor', 'Patient', 'Party', 'Status', 'Check-in'],
-                        'filter_column' => 'Status',
-                        'rows' => $logRows,
+                        'columns' => $listCols,
+                        'allow_filter' => false,
+                        'search_placeholder' => 'Search visitor / patient',
+                        'rows' => $allRows,
+                    ],
+                ],
+                [
+                    'key' => 'for_patients',
+                    'label' => 'For patients',
+                    'value' => $forPatients,
+                    'meta' => 'Linked to patient',
+                    'tone' => 'green',
+                    'detail' => [
+                        'title' => 'Patient visits',
+                        'columns' => $listCols,
+                        'allow_filter' => false,
+                        'search_placeholder' => 'Search visitor / patient',
+                        'rows' => $patientRows,
+                    ],
+                ],
+                [
+                    'key' => 'walk_in',
+                    'label' => 'Walk-in',
+                    'value' => $walkIn,
+                    'meta' => 'No patient linked',
+                    'tone' => 'orange',
+                    'detail' => [
+                        'title' => 'Walk-in visitors',
+                        'columns' => $listCols,
+                        'allow_filter' => false,
+                        'search_placeholder' => 'Search visitor',
+                        'rows' => $walkInRows,
                     ],
                 ],
                 [
                     'key' => 'inside',
-                    'label' => 'Currently inside',
-                    'value' => $checkedIn,
-                    'meta' => 'Checked in now',
-                    'tone' => 'orange',
+                    'label' => 'Inside now',
+                    'value' => $insideHeads,
+                    'meta' => 'Still checked in',
+                    'tone' => 'purple',
                     'detail' => [
                         'title' => 'Currently inside',
-                        'columns' => ['Visitor', 'Patient', 'Party', 'Check-in'],
-                        'filter_column' => 'Visitor',
+                        'columns' => $listCols,
+                        'allow_filter' => false,
+                        'search_placeholder' => 'Search visitor / patient',
                         'rows' => $insideRows,
-                    ],
-                ],
-                [
-                    'key' => 'party',
-                    'label' => 'Total party size',
-                    'value' => $partySize,
-                    'meta' => 'Selected range',
-                    'tone' => 'green',
-                    'detail' => [
-                        'title' => 'Visitor logs',
-                        'columns' => ['Visitor', 'Patient', 'Party', 'Status', 'Check-in'],
-                        'filter_column' => 'Status',
-                        'rows' => $logRows,
                     ],
                 ],
             ],
             'charts' => [
                 [
-                    'id' => 'visitors',
+                    'id' => 'visitors-heads',
                     'title' => 'Visitors trend',
                     'type' => 'bar',
-                    'series' => $this->countSeries(VisitorLog::query(), 'check_in_at', $from, $to),
+                    'series' => $this->sumSeries(VisitorLog::query(), 'check_in_at', 'party_size', $from, $to),
+                ],
+                [
+                    'id' => 'visit-type',
+                    'title' => 'Visit type',
+                    'type' => 'bar',
+                    'series' => [
+                        ['label' => 'For patients', 'value' => $forPatients],
+                        ['label' => 'Walk-in', 'value' => $walkIn],
+                    ],
                 ],
             ],
         ];
@@ -1115,21 +1288,43 @@ class ReportController extends Controller
         $paymentCount = Payment::query()->whereBetween('paid_at', [$from, $to])->count();
         $outstanding = (float) Invoice::query()->whereIn('status', ['unpaid', 'partial'])->sum('balance');
         $open = Invoice::query()->whereIn('status', ['unpaid', 'partial'])->count();
-        $expense = (float) AccountEntry::query()
+
+        // Hospital spending (patient fee is income; hospital runs pharmacy/inventory/petty).
+        $pharmacyExpense = (float) MedicineMovement::query()
+            ->where('type', 'in')
+            ->whereBetween('moved_at', [$from, $to])
+            ->selectRaw('COALESCE(SUM(quantity * COALESCE(unit_cost, 0)), 0) as total')
+            ->value('total');
+
+        $inventoryExpense = (float) InventoryMovement::query()
+            ->where('inventory_movements.type', 'in')
+            ->whereBetween('inventory_movements.moved_at', [$from, $to])
+            ->leftJoin('inventory_items', 'inventory_items.id', '=', 'inventory_movements.inventory_item_id')
+            ->selectRaw('COALESCE(SUM(inventory_movements.quantity * COALESCE(inventory_items.unit_cost, 0)), 0) as total')
+            ->value('total');
+
+        $pettyExpense = (float) PettyExpense::query()
             ->where('status', 'posted')
-            ->where('type', 'expense')
-            ->whereBetween('entry_date', [$from->toDateString(), $to->toDateString()])
-            ->sum('amount');
-        $income = (float) AccountEntry::query()
-            ->where('status', 'posted')
-            ->where('type', 'income')
-            ->whereBetween('entry_date', [$from->toDateString(), $to->toDateString()])
+            ->whereBetween('expense_date', [$from->toDateString(), $to->toDateString()])
             ->sum('amount');
 
-        $invoices = Invoice::query()
+        $facilityExpense = (float) FacilityBill::query()
+            ->where('status', 'posted')
+            ->whereBetween('bill_date', [$from->toDateString(), $to->toDateString()])
+            ->sum('amount');
+
+        $pharmacyExpense = round($pharmacyExpense, 2);
+        $inventoryExpense = round($inventoryExpense, 2);
+        $pettyExpense = round($pettyExpense, 2);
+        $facilityExpense = round($facilityExpense, 2);
+        $expense = round($pharmacyExpense + $inventoryExpense + $pettyExpense + $facilityExpense, 2);
+        $profit = round($collection - $expense, 2);
+
+        $openInvoices = Invoice::query()
             ->with('patient:id,first_name,last_name')
+            ->whereIn('status', ['unpaid', 'partial'])
             ->latest('id')
-            ->limit(100)
+            ->limit(200)
             ->get();
 
         $payments = Payment::query()
@@ -1138,7 +1333,7 @@ class ReportController extends Controller
             ->limit(100)
             ->get();
 
-        $invoiceRows = $invoices->map(function (Invoice $inv) {
+        $outstandingRows = $openInvoices->map(function (Invoice $inv) {
             $patientName = trim(($inv->patient?->first_name ?? '').' '.($inv->patient?->last_name ?? ''));
 
             return [
@@ -1156,6 +1351,23 @@ class ReportController extends Controller
             $p->method ?? '—',
             optional($p->paid_at)->toDateString() ?: '—',
         ])->values()->all();
+
+        $expenseBreakdownRows = [
+            ['Pharmacy (medicine stock in)', number_format($pharmacyExpense, 0)],
+            ['Inventory (stock in)', number_format($inventoryExpense, 0)],
+            ['Petty expenses', number_format($pettyExpense, 0)],
+            ['Facility bills', number_format($facilityExpense, 0)],
+        ];
+
+        $profitRows = [
+            ['Collection', number_format($collection, 0)],
+            ['Pharmacy expense', number_format($pharmacyExpense, 0)],
+            ['Inventory expense', number_format($inventoryExpense, 0)],
+            ['Petty expenses', number_format($pettyExpense, 0)],
+            ['Facility bills', number_format($facilityExpense, 0)],
+            ['Total expenses', number_format($expense, 0)],
+            ['Net profit', number_format($profit, 0)],
+        ];
 
         return [
             'title' => 'Billing & finance overview',
@@ -1183,24 +1395,11 @@ class ReportController extends Controller
                     'meta' => "{$open} invoice(s)",
                     'tone' => 'orange',
                     'detail' => [
-                        'title' => 'Invoices',
+                        'title' => 'Outstanding invoices',
                         'columns' => ['Invoice', 'Patient', 'Total', 'Balance', 'Status'],
-                        'filter_column' => 'Status',
-                        'rows' => $invoiceRows,
-                    ],
-                ],
-                [
-                    'key' => 'income',
-                    'label' => 'Ledger income',
-                    'value' => $income,
-                    'money' => true,
-                    'meta' => 'Selected range',
-                    'tone' => 'blue',
-                    'detail' => [
-                        'title' => 'Invoices',
-                        'columns' => ['Invoice', 'Patient', 'Total', 'Balance', 'Status'],
-                        'filter_column' => 'Status',
-                        'rows' => $invoiceRows,
+                        'allow_filter' => false,
+                        'search_placeholder' => 'Search invoice / patient',
+                        'rows' => $outstandingRows,
                     ],
                 ],
                 [
@@ -1208,13 +1407,29 @@ class ReportController extends Controller
                     'label' => 'Expenses',
                     'value' => $expense,
                     'money' => true,
-                    'meta' => 'Selected range',
+                    'meta' => 'Ops + facility',
                     'tone' => 'purple',
                     'detail' => [
-                        'title' => 'Payments in range',
-                        'columns' => ['Code', 'Amount', 'Method', 'Paid at'],
-                        'filter_column' => 'Method',
-                        'rows' => $paymentRows,
+                        'title' => 'Expense sources',
+                        'columns' => ['Source', 'Total PKR'],
+                        'allow_filter' => false,
+                        'search_placeholder' => 'Search',
+                        'rows' => $expenseBreakdownRows,
+                    ],
+                ],
+                [
+                    'key' => 'profit',
+                    'label' => 'Net profit',
+                    'value' => $profit,
+                    'money' => true,
+                    'meta' => 'Collection − expenses',
+                    'tone' => $profit >= 0 ? 'green' : 'red',
+                    'detail' => [
+                        'title' => 'Net profit',
+                        'columns' => ['Item', 'Amount'],
+                        'allow_filter' => false,
+                        'search_placeholder' => 'Search',
+                        'rows' => $profitRows,
                     ],
                 ],
             ],
@@ -1225,6 +1440,12 @@ class ReportController extends Controller
                     'type' => 'bar',
                     'series' => $this->sumSeries(Payment::query(), 'paid_at', 'amount', $from, $to),
                 ],
+                [
+                    'id' => 'net-profit',
+                    'title' => 'Net profit trend (PKR)',
+                    'type' => 'bar',
+                    'series' => $this->financeNetProfitSeries($from, $to),
+                ],
             ],
         ];
     }
@@ -1233,6 +1454,26 @@ class ReportController extends Controller
     {
         $active = User::query()->where('is_active', true)->count();
         $total = User::query()->count();
+        $staffDay = $from->isSameDay($to) ? $from->copy() : now();
+        $staffDayStr = $staffDay->toDateString();
+        $presentRows = StaffAttendance::query()
+            ->with(['user.role:id,name', 'checker:id,name'])
+            ->whereDate('attendance_date', $staffDayStr)
+            ->latest('check_in_at')
+            ->get();
+        $presentGallery = $presentRows->map(function (StaffAttendance $a) {
+            return [
+                'id' => $a->id,
+                'name' => $a->user?->name ?: '—',
+                'role' => $a->user?->role?->name ?: '—',
+                'staff_code' => $a->user?->staff_code ?: '—',
+                'phone' => $a->user?->phone ?: '—',
+                'email' => $a->user?->email ?: '—',
+                'check_in_at' => optional($a->check_in_at)->format('h:i A') ?: '—',
+                'checked_in_by' => $a->checker?->name ?: '—',
+                'photo_url' => SecureUpload::url($a->photo_path),
+            ];
+        })->values()->all();
         $staff = User::query()
             ->with('role:id,name,slug')
             ->orderBy('name')
@@ -1297,11 +1538,6 @@ class ReportController extends Controller
             fn ($r) => strcasecmp((string) $r[2], 'Admin') !== 0
         ));
 
-        $detailBase = [
-            'columns' => ['Name', 'Email', 'Role', 'Code', 'Status'],
-            'filter_column' => 'Role',
-        ];
-
         $kpis = [
             [
                 'key' => 'total',
@@ -1309,10 +1545,13 @@ class ReportController extends Controller
                 'value' => $total,
                 'meta' => "Active {$active}",
                 'tone' => 'blue',
-                'detail' => array_merge($detailBase, [
+                'detail' => [
                     'title' => 'All staff',
+                    'columns' => ['Name', 'Email', 'Role', 'Code', 'Status'],
+                    'allow_filter' => false,
+                    'search_placeholder' => 'Search staff',
                     'rows' => $staffRows,
-                ]),
+                ],
             ],
         ];
 
@@ -1342,16 +1581,10 @@ class ReportController extends Controller
             'title' => 'Staff overview',
             'card_mode' => 'modal',
             'kpis' => $kpis,
-            'charts' => [
-                [
-                    'id' => 'staff-by-role',
-                    'title' => 'Staff by role',
-                    'type' => 'bar',
-                    'series' => $roles->map(fn ($r) => [
-                        'label' => $r->name,
-                        'value' => (int) ($roleCounts[$r->id] ?? 0),
-                    ])->values()->all(),
-                ],
+            'charts' => [],
+            'present_gallery' => [
+                'title' => $staffDay->isToday() ? 'Present today' : ('Present · '.$staffDay->format('j M Y')),
+                'items' => $presentGallery,
             ],
         ];
     }
@@ -1389,7 +1622,7 @@ class ReportController extends Controller
             'title' => 'Reception dashboard',
             'kpis' => [
                 ['key' => 'total', 'label' => 'Total patients', 'value' => $totalPatients, 'meta' => "{$admittedPatients} admitted", 'tone' => 'blue'],
-                ['key' => 'registered', 'label' => 'New registrations', 'value' => $registered, 'meta' => 'Selected range', 'tone' => 'orange'],
+                ['key' => 'registered', 'label' => 'New registrations', 'value' => $registered, 'meta' => $this->rangeLabel($from, $to), 'tone' => 'orange'],
                 ['key' => 'admissions', 'label' => 'Admissions', 'value' => $admissions, 'meta' => "{$active} active stays", 'tone' => 'purple'],
                 ['key' => 'beds', 'label' => 'Beds free', 'value' => $availableBeds, 'meta' => "{$occupiedBeds} occupied · of {$totalBeds}", 'tone' => 'green'],
             ],
@@ -1461,13 +1694,19 @@ class ReportController extends Controller
 
     private function gatekeeperDashboard(Carbon $from, Carbon $to): array
     {
-        $visitors = VisitorLog::query()->whereBetween('check_in_at', [$from, $to])->count();
-        $checkedIn = VisitorLog::query()->where('status', 'checked_in')->count();
-        $checkedOut = VisitorLog::query()
+        $totalHeads = (int) VisitorLog::query()->whereBetween('check_in_at', [$from, $to])->sum('party_size');
+        $forPatients = (int) VisitorLog::query()
             ->whereBetween('check_in_at', [$from, $to])
-            ->where('status', 'checked_out')
-            ->count();
-        $partySize = (int) VisitorLog::query()->whereBetween('check_in_at', [$from, $to])->sum('party_size');
+            ->whereNotNull('patient_id')
+            ->sum('party_size');
+        $walkIn = max(0, $totalHeads - $forPatients);
+        $inside = VisitorLog::query()
+            ->with('patient:id,first_name,last_name,patient_code')
+            ->where('status', 'checked_in')
+            ->latest('check_in_at')
+            ->limit(100)
+            ->get();
+        $insideHeads = (int) $inside->sum(fn (VisitorLog $v) => (int) ($v->party_size ?? 1));
 
         $rows = VisitorLog::query()
             ->with('patient:id,first_name,last_name,patient_code')
@@ -1476,33 +1715,36 @@ class ReportController extends Controller
             ->limit(150)
             ->get();
 
-        $inside = VisitorLog::query()
-            ->with('patient:id,first_name,last_name,patient_code')
-            ->where('status', 'checked_in')
-            ->latest('check_in_at')
-            ->limit(100)
-            ->get();
-
         return [
             'title' => 'Gate dashboard',
             'kpis' => [
-                ['key' => 'visitors', 'label' => 'Visitors logged', 'value' => $visitors, 'meta' => "Checked out {$checkedOut}", 'tone' => 'blue'],
-                ['key' => 'checked_in', 'label' => 'Currently inside', 'value' => $checkedIn, 'meta' => 'Checked in now', 'tone' => 'orange'],
-                ['key' => 'party', 'label' => 'Total party size', 'value' => $partySize, 'meta' => 'Selected range', 'tone' => 'green'],
+                ['key' => 'visitors', 'label' => 'Total visitors', 'value' => $totalHeads, 'meta' => $this->rangeLabel($from, $to), 'tone' => 'blue'],
+                ['key' => 'for_patients', 'label' => 'For patients', 'value' => $forPatients, 'meta' => 'Linked to patient', 'tone' => 'green'],
+                ['key' => 'walk_in', 'label' => 'Walk-in', 'value' => $walkIn, 'meta' => 'No patient linked', 'tone' => 'orange'],
+                ['key' => 'checked_in', 'label' => 'Inside now', 'value' => $insideHeads, 'meta' => 'Still checked in', 'tone' => 'purple'],
             ],
             'charts' => [
                 [
                     'id' => 'visitors',
                     'title' => 'Visitors trend',
                     'type' => 'bar',
-                    'series' => $this->countSeries(VisitorLog::query(), 'check_in_at', $from, $to),
+                    'series' => $this->sumSeries(VisitorLog::query(), 'check_in_at', 'party_size', $from, $to),
+                ],
+                [
+                    'id' => 'visit-type',
+                    'title' => 'Visit type',
+                    'type' => 'bar',
+                    'series' => [
+                        ['label' => 'For patients', 'value' => $forPatients],
+                        ['label' => 'Walk-in', 'value' => $walkIn],
+                    ],
                 ],
             ],
             'tables' => [
                 [
                     'title' => 'Currently inside',
-                    'total' => $inside->count(),
-                    'columns' => ['Visitor', 'Patient', 'Party', 'Check-in'],
+                    'total' => $insideHeads,
+                    'columns' => ['Visitor', 'Patient', 'Visitors', 'Check-in'],
                     'rows' => $inside->map(function (VisitorLog $v) {
                         $patient = trim(($v->patient?->first_name ?? '').' '.($v->patient?->last_name ?? ''));
 
@@ -1534,7 +1776,7 @@ class ReportController extends Controller
             'links' => [
                 ['to' => '/app/visitors', 'label' => 'Log visitor'],
             ],
-            'alerts' => [['title' => 'Gate desk', 'detail' => "{$checkedIn} visitor party(ies) still inside", 'level' => 'info']],
+            'alerts' => [['title' => 'Gate desk', 'detail' => "{$insideHeads} visitor(s) still inside", 'level' => 'info']],
         ];
     }
 
@@ -1570,9 +1812,9 @@ class ReportController extends Controller
             'title' => 'Doctor dashboard',
             'kpis' => [
                 ['key' => 'patients', 'label' => 'Active patients', 'value' => $admitted, 'meta' => 'Admitted now', 'tone' => 'orange'],
-                ['key' => 'rounds', 'label' => 'Rounds', 'value' => $rounds, 'meta' => 'Selected range', 'tone' => 'blue'],
+                ['key' => 'rounds', 'label' => 'Rounds', 'value' => $rounds, 'meta' => $this->rangeLabel($from, $to), 'tone' => 'blue'],
                 ['key' => 'notes', 'label' => 'Nursing notes', 'value' => $notes, 'meta' => "Dispenses {$dispenses}", 'tone' => 'green'],
-                ['key' => 'discharges', 'label' => 'Discharges', 'value' => $discharges, 'meta' => 'Selected range', 'tone' => 'purple'],
+                ['key' => 'discharges', 'label' => 'Discharges', 'value' => $discharges, 'meta' => $this->rangeLabel($from, $to), 'tone' => 'purple'],
             ],
             'charts' => [
                 [
@@ -1668,7 +1910,7 @@ class ReportController extends Controller
             'title' => 'Nurse dashboard',
             'kpis' => [
                 ['key' => 'patients', 'label' => 'Active patients', 'value' => $admitted, 'meta' => 'Admitted now', 'tone' => 'orange'],
-                ['key' => 'notes', 'label' => 'Nursing notes', 'value' => $notes, 'meta' => 'Selected range', 'tone' => 'blue'],
+                ['key' => 'notes', 'label' => 'Nursing notes', 'value' => $notes, 'meta' => $this->rangeLabel($from, $to), 'tone' => 'blue'],
                 ['key' => 'meds', 'label' => 'Dispenses', 'value' => $dispenses, 'meta' => "Rounds {$rounds}", 'tone' => 'green'],
             ],
             'charts' => [
@@ -1727,14 +1969,27 @@ class ReportController extends Controller
         $pendingAmount = (float) Payment::query()->where('approval_status', 'pending')->sum('amount');
         $outstanding = (float) Invoice::query()->whereIn('status', ['unpaid', 'partial'])->sum('balance');
         $open = Invoice::query()->whereIn('status', ['unpaid', 'partial'])->count();
-        $income = (float) AccountEntry::query()
-            ->where('status', 'posted')->where('type', 'income')
-            ->whereBetween('entry_date', [$from->toDateString(), $to->toDateString()])
-            ->sum('amount');
-        $expense = (float) AccountEntry::query()
-            ->where('status', 'posted')->where('type', 'expense')
-            ->whereBetween('entry_date', [$from->toDateString(), $to->toDateString()])
-            ->sum('amount');
+        $pharmacyExpense = round((float) MedicineMovement::query()
+            ->where('type', 'in')
+            ->whereBetween('moved_at', [$from, $to])
+            ->selectRaw('COALESCE(SUM(quantity * COALESCE(unit_cost, 0)), 0) as total')
+            ->value('total'), 2);
+        $inventoryExpense = round((float) InventoryMovement::query()
+            ->where('inventory_movements.type', 'in')
+            ->whereBetween('inventory_movements.moved_at', [$from, $to])
+            ->leftJoin('inventory_items', 'inventory_items.id', '=', 'inventory_movements.inventory_item_id')
+            ->selectRaw('COALESCE(SUM(inventory_movements.quantity * COALESCE(inventory_items.unit_cost, 0)), 0) as total')
+            ->value('total'), 2);
+        $pettyExpense = round((float) PettyExpense::query()
+            ->where('status', 'posted')
+            ->whereBetween('expense_date', [$from->toDateString(), $to->toDateString()])
+            ->sum('amount'), 2);
+        $facilityExpense = round((float) FacilityBill::query()
+            ->where('status', 'posted')
+            ->whereBetween('bill_date', [$from->toDateString(), $to->toDateString()])
+            ->sum('amount'), 2);
+        $expense = round($pharmacyExpense + $inventoryExpense + $pettyExpense + $facilityExpense, 2);
+        $profit = round($collection - $expense, 2);
 
         $invoices = Invoice::query()
             ->with('patient:id,first_name,last_name')
@@ -1770,7 +2025,47 @@ class ReportController extends Controller
                 ['key' => 'collection', 'label' => 'Approved collection', 'value' => $collection, 'money' => true, 'meta' => "{$payments} payment(s)", 'tone' => 'green'],
                 ['key' => 'pending', 'label' => 'Pending approval', 'value' => $pendingAmount, 'money' => true, 'meta' => "{$pendingPayments} request(s)", 'tone' => 'orange'],
                 ['key' => 'outstanding', 'label' => 'Outstanding', 'value' => $outstanding, 'money' => true, 'meta' => "{$open} invoice(s)", 'tone' => 'orange'],
-                ['key' => 'income', 'label' => 'Ledger income', 'value' => $income, 'money' => true, 'meta' => 'Selected range', 'tone' => 'blue'],
+                [
+                    'key' => 'expense',
+                    'label' => 'Expenses',
+                    'value' => $expense,
+                    'money' => true,
+                    'meta' => 'Ops + facility',
+                    'tone' => 'purple',
+                    'detail' => [
+                        'title' => 'Expense sources',
+                        'columns' => ['Source', 'Total PKR'],
+                        'allow_filter' => false,
+                        'rows' => [
+                            ['Pharmacy (medicine stock in)', number_format($pharmacyExpense, 0)],
+                            ['Inventory (stock in)', number_format($inventoryExpense, 0)],
+                            ['Petty expenses', number_format($pettyExpense, 0)],
+                            ['Facility bills', number_format($facilityExpense, 0)],
+                        ],
+                    ],
+                ],
+                [
+                    'key' => 'profit',
+                    'label' => 'Net profit',
+                    'value' => $profit,
+                    'money' => true,
+                    'meta' => 'Collection − expenses',
+                    'tone' => $profit >= 0 ? 'green' : 'red',
+                    'detail' => [
+                        'title' => 'Net profit',
+                        'columns' => ['Item', 'Amount'],
+                        'allow_filter' => false,
+                        'rows' => [
+                            ['Collection', number_format($collection, 0)],
+                            ['Pharmacy expense', number_format($pharmacyExpense, 0)],
+                            ['Inventory expense', number_format($inventoryExpense, 0)],
+                            ['Petty expenses', number_format($pettyExpense, 0)],
+                            ['Facility bills', number_format($facilityExpense, 0)],
+                            ['Total expenses', number_format($expense, 0)],
+                            ['Net profit', number_format($profit, 0)],
+                        ],
+                    ],
+                ],
             ],
             'charts' => [
                 [
@@ -1778,6 +2073,12 @@ class ReportController extends Controller
                     'title' => 'Approved collection trend (PKR)',
                     'type' => 'bar',
                     'series' => $this->sumSeries(Payment::query()->where('approval_status', 'approved'), 'paid_at', 'amount', $from, $to),
+                ],
+                [
+                    'id' => 'net-profit',
+                    'title' => 'Net profit trend (PKR)',
+                    'type' => 'bar',
+                    'series' => $this->financeNetProfitSeries($from, $to, true),
                 ],
             ],
             'tables' => [
@@ -1841,7 +2142,7 @@ class ReportController extends Controller
                 ['to' => '/app/reports', 'label' => 'Reports'],
             ],
             'alerts' => $open > 0
-                ? [['title' => 'Fees due', 'detail' => "{$open} unpaid/partial invoice(s)", 'level' => 'warning']]
+                ? [['title' => 'Fees due', 'detail' => "{$open} unpaid invoice(s)", 'level' => 'warning']]
                 : [['title' => 'Fees clear', 'detail' => 'No open invoices', 'level' => 'success']],
         ];
     }
@@ -1852,7 +2153,11 @@ class ReportController extends Controller
         $qty = (float) MedicineDispense::query()->whereBetween('dispensed_at', [$from, $to])->sum('quantity');
         $low = Medicine::query()->where('status', 'active')->whereColumn('stock_qty', '<=', 'reorder_level')->count();
         $activeMeds = Medicine::query()->where('status', 'active')->count();
-        $invLow = InventoryItem::query()->where('status', 'active')->whereColumn('stock_qty', '<=', 'reorder_level')->count();
+        $invLow = InventoryItem::query()
+            ->where('status', 'active')
+            ->tracksReorder()
+            ->whereColumn('stock_qty', '<=', 'reorder_level')
+            ->count();
 
         $meds = Medicine::query()
             ->where('status', 'active')
@@ -1870,8 +2175,8 @@ class ReportController extends Controller
         return [
             'title' => 'Pharmacy dashboard',
             'kpis' => [
-                ['key' => 'dispenses', 'label' => 'Dispenses', 'value' => $dispenses, 'meta' => 'Selected range', 'tone' => 'blue'],
-                ['key' => 'qty', 'label' => 'Qty dispensed', 'value' => $qty, 'meta' => 'Selected range', 'tone' => 'green'],
+                ['key' => 'dispenses', 'label' => 'Dispenses', 'value' => $dispenses, 'meta' => $this->rangeLabel($from, $to), 'tone' => 'blue'],
+                ['key' => 'qty', 'label' => 'Qty dispensed', 'value' => $qty, 'meta' => $this->rangeLabel($from, $to), 'tone' => 'green'],
                 ['key' => 'low', 'label' => 'Low medicine', 'value' => $low, 'meta' => "of {$activeMeds} · inv low {$invLow}", 'tone' => 'orange'],
             ],
             'charts' => [
@@ -1946,9 +2251,286 @@ class ReportController extends Controller
             'title' => 'Inventory dashboard',
             'links' => [
                 ['to' => '/app/inventory', 'label' => 'Stock in / out'],
+                ['to' => '/app/inventory', 'label' => 'Petty expenses'],
+                ['to' => '/app/inventory', 'label' => 'Facility bills'],
                 ['to' => '/app/kitchen', 'label' => 'Kitchen stock'],
             ],
         ]);
+    }
+
+    private function adminInventoryBillsSection(
+        Carbon $from,
+        Carbon $to,
+        ?int $createdBy = null,
+        ?string $billType = null
+    ): array {
+        $base = FacilityBill::query()
+            ->where('status', 'posted')
+            ->whereBetween('bill_date', [$from->toDateString(), $to->toDateString()]);
+        if ($createdBy) {
+            $base->where('created_by', $createdBy);
+        }
+        if ($billType) {
+            $base->where('bill_type', $billType);
+        }
+
+        $totalAmount = round((float) (clone $base)->sum('amount'), 2);
+        $entries = (clone $base)->count();
+        $avg = $entries > 0 ? round($totalAmount / $entries, 2) : 0;
+
+        $rows = (clone $base)
+            ->with('creator:id,name')
+            ->latest('bill_date')
+            ->latest('id')
+            ->limit(300)
+            ->get();
+
+        $mapBillRow = function (FacilityBill $b) {
+            return [
+                $b->bill_code,
+                FacilityBill::typeLabel($b->bill_type),
+                number_format((float) $b->amount, 2, '.', ''),
+                $b->payment_method ?: '—',
+                $b->reference ?: '—',
+                $b->creator?->name ?: '—',
+                optional($b->bill_date)->toDateString() ?: '—',
+            ];
+        };
+
+        $detailRows = $rows->map($mapBillRow)->values()->all();
+
+        $byType = (clone $base)
+            ->selectRaw('bill_type, SUM(amount) as total, COUNT(*) as c')
+            ->groupBy('bill_type')
+            ->orderByDesc('total')
+            ->get()
+            ->keyBy('bill_type');
+
+        $typeKeys = collect(FacilityBill::TYPES)
+            ->merge($byType->keys())
+            ->unique()
+            ->values();
+
+        $tones = ['blue', 'orange', 'green', 'purple', 'red', 'blue'];
+        $typeKpis = [];
+        foreach ($typeKeys as $i => $typeKey) {
+            $typeKey = (string) $typeKey;
+            $sum = round((float) ($byType[$typeKey]->total ?? 0), 2);
+            $count = (int) ($byType[$typeKey]->c ?? 0);
+            $typeRows = $rows->where('bill_type', $typeKey)->map($mapBillRow)->values()->all();
+
+            $typeKpis[] = [
+                'key' => 'type_'.$typeKey,
+                'label' => FacilityBill::typeLabel($typeKey),
+                'value' => $sum,
+                'money' => true,
+                'meta' => "{$count} bill(s)",
+                'tone' => $tones[$i % count($tones)],
+                'detail' => [
+                    'title' => FacilityBill::typeLabel($typeKey).' bills',
+                    'columns' => ['Code', 'Type', 'Amount', 'Pay', 'Reference', 'Entered by', 'Date'],
+                    'allow_filter' => false,
+                    'staff_filter_column' => 'Entered by',
+                    'search_placeholder' => 'Search bill',
+                    'rows' => $typeRows,
+                ],
+            ];
+        }
+
+        $trend = FacilityBill::query()
+            ->where('status', 'posted')
+            ->whereBetween('bill_date', [$from->toDateString(), $to->toDateString()]);
+        if ($createdBy) {
+            $trend->where('created_by', $createdBy);
+        }
+        if ($billType) {
+            $trend->where('bill_type', $billType);
+        }
+
+        return [
+            'title' => 'Facility bills',
+            'card_mode' => 'modal',
+            'staff_filter' => true,
+            'kpis' => array_merge([
+                [
+                    'key' => 'total',
+                    'label' => 'Total bills',
+                    'value' => $totalAmount,
+                    'money' => true,
+                    'meta' => $this->rangeLabel($from, $to),
+                    'tone' => 'red',
+                    'detail' => [
+                        'title' => 'Facility bills',
+                        'columns' => ['Code', 'Type', 'Amount', 'Pay', 'Reference', 'Entered by', 'Date'],
+                        'allow_filter' => false,
+                        'search_placeholder' => 'Search bill',
+                        'rows' => $detailRows,
+                    ],
+                ],
+                [
+                    'key' => 'avg',
+                    'label' => 'Avg bill',
+                    'value' => $avg,
+                    'money' => true,
+                    'meta' => 'Per entry',
+                    'tone' => 'purple',
+                ],
+            ], $typeKpis),
+            'charts' => [
+                [
+                    'id' => 'bills-trend',
+                    'title' => 'Bills trend',
+                    'type' => 'bar',
+                    'series' => $this->sumSeries($trend, 'bill_date', 'amount', $from, $to),
+                ],
+                [
+                    'id' => 'bills-by-type',
+                    'title' => 'By type',
+                    'type' => 'bar',
+                    'series' => $byType->map(fn ($r) => [
+                        'label' => FacilityBill::typeLabel($r->bill_type),
+                        'value' => round((float) $r->total, 2),
+                    ])->values()->all(),
+                ],
+            ],
+        ];
+    }
+
+    private function adminInventoryPettySection(
+        Carbon $from,
+        Carbon $to,
+        ?int $createdBy = null,
+        ?string $spentFor = null
+    ): array {
+        $base = PettyExpense::query()
+            ->where('status', 'posted')
+            ->whereBetween('expense_date', [$from->toDateString(), $to->toDateString()]);
+        if ($createdBy) {
+            $base->where('created_by', $createdBy);
+        }
+        if ($spentFor) {
+            $base->where('spent_for', $spentFor);
+        }
+
+        $totalAmount = round((float) (clone $base)->sum('amount'), 2);
+        $entries = (clone $base)->count();
+        $avg = $entries > 0 ? round($totalAmount / $entries, 2) : 0;
+        $highest = round((float) (clone $base)->max('amount'), 2);
+
+        $rows = (clone $base)
+            ->with('creator:id,name')
+            ->latest('expense_date')
+            ->latest('id')
+            ->limit(300)
+            ->get();
+
+        $mapRow = function (PettyExpense $e) {
+            return [
+                $e->expense_code,
+                $e->title,
+                number_format((float) $e->amount, 2, '.', ''),
+                $e->spent_for ?: '—',
+                $e->reason ?: '—',
+                $e->creator?->name ?: '—',
+                $e->payment_method ?: '—',
+                optional($e->expense_date)->toDateString() ?: '—',
+            ];
+        };
+
+        $detailRows = $rows->map($mapRow)->values()->all();
+        $highestRows = $rows
+            ->sortByDesc(fn (PettyExpense $e) => (float) $e->amount)
+            ->take(20)
+            ->map($mapRow)
+            ->values()
+            ->all();
+
+        $byPerson = (clone $base)
+            ->selectRaw('spent_for, SUM(amount) as total, COUNT(*) as c')
+            ->groupBy('spent_for')
+            ->orderByDesc('total')
+            ->limit(12)
+            ->get();
+
+        $trend = PettyExpense::query()
+            ->where('status', 'posted')
+            ->whereBetween('expense_date', [$from->toDateString(), $to->toDateString()]);
+        if ($createdBy) {
+            $trend->where('created_by', $createdBy);
+        }
+        if ($spentFor) {
+            $trend->where('spent_for', $spentFor);
+        }
+
+        return [
+            'title' => 'Petty expenses',
+            'card_mode' => 'modal',
+            'staff_filter' => true,
+            'kpis' => [
+                [
+                    'key' => 'total',
+                    'label' => 'Total spent',
+                    'value' => $totalAmount,
+                    'money' => true,
+                    'meta' => $this->rangeLabel($from, $to),
+                    'tone' => 'red',
+                    'detail' => [
+                        'title' => 'Petty expenses',
+                        'columns' => ['Code', 'Item', 'Amount', 'Spent for', 'Reason', 'Entered by', 'Pay', 'Date'],
+                        'allow_filter' => false,
+                        'search_placeholder' => 'Search item / reason',
+                        'rows' => $detailRows,
+                    ],
+                ],
+                [
+                    'key' => 'transactions',
+                    'label' => 'Total transactions',
+                    'value' => $entries,
+                    'meta' => 'Posted entries',
+                    'tone' => 'orange',
+                ],
+                [
+                    'key' => 'highest',
+                    'label' => 'Highest entry',
+                    'value' => $highest,
+                    'money' => true,
+                    'meta' => 'Largest single',
+                    'tone' => 'blue',
+                    'detail' => [
+                        'title' => 'Largest petty entries',
+                        'columns' => ['Code', 'Item', 'Amount', 'Spent for', 'Reason', 'Entered by', 'Pay', 'Date'],
+                        'allow_filter' => false,
+                        'search_placeholder' => 'Search item / reason',
+                        'rows' => $highestRows,
+                    ],
+                ],
+                [
+                    'key' => 'avg',
+                    'label' => 'Avg entry',
+                    'value' => $avg,
+                    'money' => true,
+                    'meta' => 'Per entry',
+                    'tone' => 'purple',
+                ],
+            ],
+            'charts' => [
+                [
+                    'id' => 'petty-trend',
+                    'title' => 'Spend trend',
+                    'type' => 'bar',
+                    'series' => $this->sumSeries($trend, 'expense_date', 'amount', $from, $to),
+                ],
+                [
+                    'id' => 'petty-by-person',
+                    'title' => 'By person',
+                    'type' => 'bar',
+                    'series' => $byPerson->map(fn ($r) => [
+                        'label' => $r->spent_for ?: '—',
+                        'value' => round((float) $r->total, 2),
+                    ])->values()->all(),
+                ],
+            ],
+        ];
     }
 
     private function qtyLabel(float $qty, ?string $unit): string
@@ -1974,31 +2556,112 @@ class ReportController extends Controller
             ->all();
     }
 
-    private function inventoryMovementDetail($moveRows): array
+    private function inventoryMovementDetail($moveRows, string $title = 'Stock movements', bool $showType = true): array
+    {
+        $columns = $showType
+            ? ['Code', 'Item', 'Type', 'Qty', 'Purpose', 'Person', 'Dept', 'Used for', 'Recorded by', 'Date']
+            : ['Code', 'Item', 'Qty', 'Purpose', 'Person', 'Dept', 'Used for', 'Recorded by', 'Date'];
+
+        return [
+            'title' => $title,
+            'columns' => $columns,
+            'allow_filter' => false,
+            'staff_filter_column' => 'Recorded by',
+            'search_placeholder' => 'Search by item',
+            'rows' => collect($moveRows)->map(function (InventoryMovement $m) use ($showType) {
+                $unit = $m->unit ?: ($m->item?->unit ?: '');
+                $row = [
+                    $m->movement_code ?? ('#'.$m->id),
+                    $m->item?->name ?: ($m->item?->item_code ?: '—'),
+                ];
+                if ($showType) {
+                    $row[] = $m->type;
+                }
+                $row[] = $this->qtyLabel((float) $m->quantity, $unit);
+                $row[] = $m->purpose ? str_replace('_', ' ', $m->purpose) : '—';
+                $row[] = $m->issued_to ?: '—';
+                $row[] = $m->department ? str_replace('_', ' ', $m->department) : '—';
+                $row[] = $m->used_for ?: '—';
+                $row[] = $m->creator?->name ?: '—';
+                $row[] = optional($m->moved_at)->toDateTimeString() ?: '—';
+
+                return $row;
+            })->values()->all(),
+        ];
+    }
+
+    private function inventoryUseForDetail($moveRows): array
     {
         return [
-            'title' => 'Stock movements',
-            'columns' => ['Code', 'Item', 'Type', 'Qty', 'Purpose', 'Person', 'Dept', 'Used for', 'Recorded by', 'Date'],
-            'filter_column' => 'Type',
+            'title' => 'Use for',
+            'columns' => ['Used for', 'Item', 'Qty', 'Purpose', 'Dept', 'Person', 'Recorded by', 'Date'],
+            'filter_column' => 'Used for',
             'staff_filter_column' => 'Recorded by',
+            'search_placeholder' => 'Search by use / item',
             'rows' => collect($moveRows)->map(function (InventoryMovement $m) {
                 $unit = $m->unit ?: ($m->item?->unit ?: '');
 
                 return [
-                    $m->movement_code ?? ('#'.$m->id),
+                    $m->used_for ?: '—',
                     $m->item?->name ?: ($m->item?->item_code ?: '—'),
-                    $m->type,
                     $this->qtyLabel((float) $m->quantity, $unit),
                     $m->purpose ? str_replace('_', ' ', $m->purpose) : '—',
-                    $m->issued_to ?: '—',
                     $m->department ? str_replace('_', ' ', $m->department) : '—',
-                    $m->used_for ?: '—',
+                    $m->issued_to ?: '—',
                     $m->creator?->name ?: '—',
                     optional($m->moved_at)->toDateTimeString() ?: '—',
                 ];
             })->values()->all(),
         ];
     }
+    /** Merge empty/null categories into "other" after a plain GROUP BY (MySQL ONLY_FULL_GROUP_BY safe). */
+    private function collapseCategoryCounts($rows)
+    {
+        return collect($rows)
+            ->groupBy(fn ($row) => ($row->category !== null && $row->category !== '') ? (string) $row->category : 'other')
+            ->map(fn ($group, $category) => (object) [
+                'category' => $category,
+                'c' => (int) $group->sum(fn ($r) => (int) $r->c),
+            ])
+            ->sortByDesc('c')
+            ->values();
+    }
+
+    /**
+     * Compact tooltip: section label + "Category: count" lines, blank gap between sections.
+     * Extra args: optional second section ($label2, $rows2, $labelFn2).
+     */
+    private function categoryTooltipLines(
+        string $label1,
+        $rows1,
+        callable $labelFn1,
+        ?string $label2 = null,
+        $rows2 = null,
+        ?callable $labelFn2 = null,
+    ): array {
+        $lines = [];
+        $rows1 = collect($rows1);
+        if ($rows1->isNotEmpty()) {
+            $lines[] = $label1;
+            foreach ($rows1 as $row) {
+                $lines[] = $labelFn1($row->category).': '.$row->c;
+            }
+        }
+        $rows2 = collect($rows2);
+        if ($label2 && $rows2->isNotEmpty()) {
+            if ($lines !== []) {
+                $lines[] = '';
+            }
+            $lines[] = $label2;
+            foreach ($rows2 as $row) {
+                $fn = $labelFn2 ?: $labelFn1;
+                $lines[] = $fn($row->category).': '.$row->c;
+            }
+        }
+
+        return $lines;
+    }
+
     private function buildAlerts(int $lowMedicines, int $lowInventory, int $openInvoices): array
     {
         $alerts = [];
@@ -2009,13 +2672,40 @@ class ReportController extends Controller
             $alerts[] = ['title' => 'Low inventory stock', 'detail' => "{$lowInventory} inventory item(s) need restock", 'level' => 'warning'];
         }
         if ($openInvoices > 0) {
-            $alerts[] = ['title' => 'Fee outstanding', 'detail' => "{$openInvoices} invoice(s) unpaid/partial", 'level' => 'info'];
+            $alerts[] = ['title' => 'Fee outstanding', 'detail' => "{$openInvoices} unpaid invoice(s)", 'level' => 'info'];
         }
         if ($alerts === []) {
             $alerts[] = ['title' => 'All clear', 'detail' => 'No critical alerts right now', 'level' => 'success'];
         }
 
         return $alerts;
+    }
+
+    /** Human-readable date range for KPI footers (not "Selected range"). */
+    private function rangeLabel(Carbon $from, Carbon $to): string
+    {
+        if ($from->isSameDay($to)) {
+            return 'On '.$from->format('j M Y');
+        }
+
+        if ($from->day === 1 && $to->isSameMonth($from) && $to->day === $to->daysInMonth) {
+            return 'In '.$from->format('M Y');
+        }
+
+        if ($from->month === 1 && $from->day === 1 && $to->month === 12 && $to->day === 31 && $from->isSameYear($to)) {
+            return 'In year '.$from->year;
+        }
+
+        $days = (int) round($from->copy()->startOfDay()->diffInDays($to->copy()->startOfDay()) + 1);
+        if ($to->isToday() && $days >= 1 && $days <= 31) {
+            return $days === 1 ? 'Today' : 'Last '.$days.' days';
+        }
+
+        if ($from->year <= 2000 && $to->isToday()) {
+            return 'All time';
+        }
+
+        return $from->format('j M Y').' – '.$to->format('j M Y');
     }
 
     private function countSeries($query, string $column, Carbon $from, Carbon $to): array
@@ -2039,11 +2729,156 @@ class ReportController extends Controller
         return $this->fillDailySeries($from, $to, $rows);
     }
 
+    /**
+     * Year-over-year admissions (cumulative by month), like a live comparison chart.
+     * Falls back to demo values when the DB has no admission rows yet.
+     * TODO: remove demo fallback before production cutover.
+     */
+    private function admissionsYearCompareChart(): array
+    {
+        $now = Carbon::now();
+        $thisYear = (int) $now->year;
+        $prevYear = $thisYear - 1;
+        $currentMonth = (int) $now->month; // 1–12
+        $categories = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+        $prevMonthly = $this->monthlyAdmissionCounts($prevYear);
+        $currMonthly = $this->monthlyAdmissionCounts($thisYear);
+        $realTotal = array_sum($prevMonthly) + array_sum($currMonthly);
+        // TODO: set $forceDemo = false (or remove) before production — dummy is for UI review only.
+        $forceDemo = true;
+        $demo = $forceDemo || $realTotal <= 0;
+
+        if ($demo) {
+            // Demo shape for UI review only — not real facility data.
+            $prevMonthly = [0, 0, 0, 0, 2, 3, 4, 5, 4, 3, 3, 4];
+            $currMonthly = [1, 2, 2, 3, 4, 3, 4, 3, 4, 3, 2, 0];
+        }
+
+        $prevCum = $this->cumulativeMonthly($prevMonthly, 12);
+        $currCum = $this->cumulativeMonthly($currMonthly, $currentMonth);
+
+        return [
+            'id' => 'admissions-trend',
+            'title' => $demo
+                ? 'Admissions · year comparison (demo)'
+                : 'Admissions · year comparison',
+            'type' => 'compare',
+            'categories' => $categories,
+            'lines' => [
+                [
+                    'key' => 'prev',
+                    'label' => $prevYear.' · full year',
+                    'color' => '#d4a017',
+                    'values' => $prevCum,
+                ],
+                [
+                    'key' => 'curr',
+                    'label' => $thisYear.' · YTD',
+                    'color' => '#e07020',
+                    'values' => $currCum,
+                ],
+            ],
+        ];
+    }
+
+    /** @return list<int> length 12, index 0 = Jan */
+    private function monthlyAdmissionCounts(int $year): array
+    {
+        $counts = array_fill(0, 12, 0);
+        $rows = Admission::query()
+            ->selectRaw('MONTH(admitted_at) as m, COUNT(*) as c')
+            ->whereYear('admitted_at', $year)
+            ->groupBy('m')
+            ->pluck('c', 'm');
+
+        foreach ($rows as $month => $count) {
+            $idx = ((int) $month) - 1;
+            if ($idx >= 0 && $idx < 12) {
+                $counts[$idx] = (int) $count;
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
+     * @param  list<int|float>  $monthly
+     * @return list<float|null>
+     */
+    private function cumulativeMonthly(array $monthly, int $throughMonth): array
+    {
+        $out = [];
+        $sum = 0.0;
+        for ($i = 0; $i < 12; $i++) {
+            if ($i >= $throughMonth) {
+                $out[] = null;
+                continue;
+            }
+            $sum += (float) ($monthly[$i] ?? 0);
+            $out[] = $sum;
+        }
+
+        return $out;
+    }
+
+    /** Only dates/months that have real events (no empty placeholder dates). */
+    private function sparseCountSeries($query, string $column, Carbon $from, Carbon $to): array
+    {
+        $spanDays = $from->diffInDays($to);
+        if ($spanDays > 45) {
+            $rows = (clone $query)
+                ->selectRaw('DATE_FORMAT('.$column.', "%Y-%m") as d, COUNT(*) as c')
+                ->whereBetween($column, [$from, $to])
+                ->groupBy('d')
+                ->orderBy('d')
+                ->get();
+
+            return $rows
+                ->filter(fn ($r) => (int) $r->c > 0)
+                ->map(function ($r) {
+                    $month = Carbon::createFromFormat('Y-m', $r->d)->startOfMonth();
+
+                    return [
+                        'label' => $month->format('M Y'),
+                        'value' => (float) $r->c,
+                    ];
+                })
+                ->values()
+                ->all();
+        }
+
+        $rows = (clone $query)
+            ->selectRaw('DATE('.$column.') as d, COUNT(*) as c')
+            ->whereBetween($column, [$from, $to])
+            ->groupBy('d')
+            ->orderBy('d')
+            ->get();
+
+        return $rows
+            ->filter(fn ($r) => (int) $r->c > 0)
+            ->map(function ($r) {
+                $day = Carbon::parse($r->d);
+
+                return [
+                    'label' => $day->format('d M'),
+                    'value' => (float) $r->c,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
     private function sumSeries($query, string $column, string $sumColumn, Carbon $from, Carbon $to): array
+    {
+        return $this->sumExprSeries($query, $column, 'SUM('.$sumColumn.')', $from, $to);
+    }
+
+    private function sumExprSeries($query, string $column, string $sumExpr, Carbon $from, Carbon $to): array
     {
         if ($from->diffInDays($to) > 45) {
             $rows = (clone $query)
-                ->selectRaw('DATE_FORMAT('.$column.', "%Y-%m") as d, COALESCE(SUM('.$sumColumn.'),0) as c')
+                ->selectRaw('DATE_FORMAT('.$column.', "%Y-%m") as d, COALESCE('.$sumExpr.',0) as c')
                 ->whereBetween($column, [$from, $to])
                 ->groupBy('d')
                 ->pluck('c', 'd');
@@ -2052,12 +2887,73 @@ class ReportController extends Controller
         }
 
         $rows = (clone $query)
-            ->selectRaw('DATE('.$column.') as d, COALESCE(SUM('.$sumColumn.'),0) as c')
+            ->selectRaw('DATE('.$column.') as d, COALESCE('.$sumExpr.',0) as c')
             ->whereBetween($column, [$from, $to])
             ->groupBy('d')
             ->pluck('c', 'd');
 
         return $this->fillDailySeries($from, $to, $rows);
+    }
+
+    /** Collection − (pharmacy stock-in + inventory stock-in + petty + facility) by period. */
+    private function financeNetProfitSeries(Carbon $from, Carbon $to, bool $approvedOnly = false): array
+    {
+        $collectionQuery = Payment::query();
+        if ($approvedOnly) {
+            $collectionQuery->where('approval_status', 'approved');
+        }
+
+        $collection = $this->sumSeries($collectionQuery, 'paid_at', 'amount', $from, $to);
+
+        $pharmacy = $this->sumExprSeries(
+            MedicineMovement::query()->where('type', 'in'),
+            'moved_at',
+            'SUM(quantity * COALESCE(unit_cost, 0))',
+            $from,
+            $to
+        );
+
+        $inventory = $this->sumExprSeries(
+            InventoryMovement::query()
+                ->where('inventory_movements.type', 'in')
+                ->leftJoin('inventory_items', 'inventory_items.id', '=', 'inventory_movements.inventory_item_id'),
+            'inventory_movements.moved_at',
+            'SUM(inventory_movements.quantity * COALESCE(inventory_items.unit_cost, 0))',
+            $from,
+            $to
+        );
+
+        $petty = $this->sumSeries(
+            PettyExpense::query()->where('status', 'posted'),
+            'expense_date',
+            'amount',
+            $from,
+            $to
+        );
+
+        $facility = $this->sumSeries(
+            FacilityBill::query()->where('status', 'posted'),
+            'bill_date',
+            'amount',
+            $from,
+            $to
+        );
+
+        $series = [];
+        foreach ($collection as $i => $point) {
+            $value = (float) ($point['value'] ?? 0)
+                - (float) ($pharmacy[$i]['value'] ?? 0)
+                - (float) ($inventory[$i]['value'] ?? 0)
+                - (float) ($petty[$i]['value'] ?? 0)
+                - (float) ($facility[$i]['value'] ?? 0);
+
+            $series[] = [
+                'label' => $point['label'],
+                'value' => round($value, 2),
+            ];
+        }
+
+        return $series;
     }
 
     /** @deprecated keep aliases for any leftover calls */

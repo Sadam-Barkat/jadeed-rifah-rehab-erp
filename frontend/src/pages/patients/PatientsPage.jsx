@@ -122,7 +122,7 @@ export default function PatientsPage({ embedded = false }) {
       ) : rows.length === 0 ? (
         <p className="panel-copy">No patients found.</p>
       ) : (
-        <div className="entity-card-grid scroll-panel dash-scroll-panel">
+        <div className="entity-card-grid">
           {rows.map((row) => (
             <article key={row.id} className="entity-card">
               <div className="entity-card-top">

@@ -41,6 +41,8 @@ const UNITS = [
 const emptyMed = {
   name: '',
   generic_name: '',
+  category: 'analgesics',
+  category_custom: '',
   form: 'tablet',
   strength: '',
   unit: 'tablet',
@@ -54,6 +56,23 @@ const emptyMed = {
   reference: '',
   notes: '',
 }
+
+const DEFAULT_MED_CATEGORIES = [
+  { value: 'analgesics', label: 'Analgesics' },
+  { value: 'antibiotics', label: 'Antibiotics' },
+  { value: 'antidepressants', label: 'Antidepressants' },
+  { value: 'anxiolytics', label: 'Anxiolytics / sedatives' },
+  { value: 'antipsychotics', label: 'Antipsychotics' },
+  { value: 'vitamins', label: 'Vitamins & supplements' },
+  { value: 'detox_support', label: 'Detox / withdrawal support' },
+  { value: 'gastrointestinal', label: 'Gastrointestinal' },
+  { value: 'cardiovascular', label: 'Cardiovascular' },
+  { value: 'respiratory', label: 'Respiratory' },
+  { value: 'antihistamines', label: 'Antihistamines' },
+  { value: 'topical', label: 'Topical' },
+  { value: 'iv_fluids', label: 'IV / fluids' },
+  { value: 'other', label: 'Other' },
+]
 
 const emptyStockIn = {
   medicine_id: '',
@@ -87,6 +106,7 @@ export default function PharmacyPage() {
   const [dispenses, setDispenses] = useState([])
   const [movements, setMovements] = useState([])
   const [staff, setStaff] = useState([])
+  const [categories, setCategories] = useState(DEFAULT_MED_CATEGORIES)
   const [medForm, setMedForm] = useState(emptyMed)
   const [stockForm, setStockForm] = useState(emptyStockIn)
   const [dispenseForm, setDispenseForm] = useState(emptyDispense)
@@ -128,6 +148,9 @@ export default function PharmacyPage() {
     const medRes = await api(`/medicines?${q}`)
     setMedicines(medRes.data || [])
     if (medRes.meta?.staff) setStaff(medRes.meta.staff)
+    if (Array.isArray(medRes.meta?.categories) && medRes.meta.categories.length) {
+      setCategories(medRes.meta.categories)
+    }
   }
 
   async function loadDispenses() {
@@ -192,11 +215,21 @@ export default function PharmacyPage() {
     e.preventDefault()
     setSavingMed(true)
     try {
+      const category =
+        medForm.category === '__new__'
+          ? (medForm.category_custom || '').trim()
+          : medForm.category
+      if (!category) {
+        toast.error('Category is required')
+        setSavingMed(false)
+        return
+      }
       const data = await api('/medicines', {
         method: 'POST',
         body: {
           name: medForm.name,
           generic_name: medForm.generic_name || null,
+          category,
           form: medForm.form,
           strength: medForm.strength || null,
           unit: medForm.unit,
@@ -309,6 +342,33 @@ export default function PharmacyPage() {
               <label htmlFor="generic_name">Generic name</label>
               <input id="generic_name" className="ui-input" value={medForm.generic_name} onChange={(e) => setMed('generic_name', e.target.value)} />
             </div>
+            <div className="ui-field">
+              <label htmlFor="med_category">Category</label>
+              <select
+                id="med_category"
+                className="ui-select"
+                required
+                value={medForm.category}
+                onChange={(e) => setMed('category', e.target.value)}
+              >
+                {categories.map((c) => (
+                  <option key={c.value} value={c.value}>{c.label}</option>
+                ))}
+                <option value="__new__">Add new…</option>
+              </select>
+            </div>
+            {medForm.category === '__new__' ? (
+              <div className="ui-field">
+                <label htmlFor="med_category_custom">New category</label>
+                <input
+                  id="med_category_custom"
+                  className="ui-input"
+                  required
+                  value={medForm.category_custom}
+                  onChange={(e) => setMed('category_custom', e.target.value)}
+                />
+              </div>
+            ) : null}
             <div className="ui-field">
               <label htmlFor="form">Form</label>
               <select id="form" className="ui-select" required value={medForm.form} onChange={(e) => setMed('form', e.target.value)}>
@@ -496,6 +556,7 @@ export default function PharmacyPage() {
                     <tr>
                       <th>Code</th>
                       <th>Name</th>
+                      <th>Category</th>
                       <th>Form</th>
                       <th>Strength</th>
                       <th>Stock</th>
@@ -508,6 +569,7 @@ export default function PharmacyPage() {
                       <tr key={m.id}>
                         <td>{m.medicine_code}</td>
                         <td>{m.name}</td>
+                        <td>{m.category_label || m.category || '—'}</td>
                         <td>{m.form || '—'}</td>
                         <td>{m.strength || '—'}</td>
                         <td>

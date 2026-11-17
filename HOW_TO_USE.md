@@ -64,8 +64,8 @@ Management tab: add/update/delete staff and manage patients.
 - Admin action on register: Register request **or** Register+Admit (+ bed)
 - Management patient stages: Requests / Admitted / Discharge requests / Discharged
 - Doctor **Request discharge** → Admin confirms
-- Finance fee flow: collect + proof → **pending approval** → Admin reviews patient/amount/screenshot → **Approve** (invoice paid/partial) or Reject
-- Installments = partial amounts on same invoice (each needs approval)
+- Finance creates invoice (with installment plan, e.g. 3 or 5 parts) → each installment payment + proof → **pending approval** → Admin checks screenshot → **Approve** (invoice stays unpaid until last installment) or Reject
+- No “partial” invoice status — unpaid until fully paid, then paid
 - Finance dashboard shows approved collection + pending requests
 
 **Still later:** invoice auto-create on register; richer installment schedule planner.

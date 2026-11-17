@@ -50,7 +50,7 @@ class InventoryItemController extends Controller
                 'last_page' => $paginator->lastPage(),
                 'per_page' => $paginator->perPage(),
                 'total' => $paginator->total(),
-                'categories' => InventoryItem::CATEGORIES,
+                'categories' => $this->categoryOptions(),
             ],
         ]);
     }
@@ -59,7 +59,7 @@ class InventoryItemController extends Controller
     {
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'category' => ['nullable', Rule::in(InventoryItem::CATEGORIES)],
+            'category' => ['nullable', 'string', 'max:60'],
             'unit' => ['nullable', 'string', 'max:30'],
             'stock_qty' => ['nullable', 'numeric', 'min:0'],
             'reorder_level' => ['nullable', 'numeric', 'min:0'],
@@ -80,7 +80,7 @@ class InventoryItemController extends Controller
             $item = InventoryItem::query()->create([
                 'item_code' => $this->nextCode(),
                 'name' => $data['name'],
-                'category' => $data['category'] ?? 'general',
+                'category' => InventoryItem::normalizeCategory($data['category'] ?? 'general'),
                 'unit' => $data['unit'] ?? 'unit',
                 'stock_qty' => $data['stock_qty'] ?? 0,
                 'reorder_level' => $data['reorder_level'] ?? 10,
@@ -115,7 +115,7 @@ class InventoryItemController extends Controller
     {
         $data = $request->validate([
             'name' => ['sometimes', 'required', 'string', 'max:255'],
-            'category' => ['nullable', Rule::in(InventoryItem::CATEGORIES)],
+            'category' => ['nullable', 'string', 'max:60'],
             'unit' => ['nullable', 'string', 'max:30'],
             'reorder_level' => ['nullable', 'numeric', 'min:0'],
             'unit_cost' => ['nullable', 'numeric', 'min:0'],
@@ -128,6 +128,10 @@ class InventoryItemController extends Controller
             $data['bill_image_path'] = SecureUpload::storeBillImage($request->file('bill_image'), 'inventory-bills');
         }
         unset($data['bill_image']);
+
+        if (array_key_exists('category', $data)) {
+            $data['category'] = InventoryItem::normalizeCategory($data['category']);
+        }
 
         $inventoryItem->update($data);
 
@@ -144,17 +148,39 @@ class InventoryItemController extends Controller
             'item_code' => $item->item_code,
             'name' => $item->name,
             'category' => $item->category,
+            'category_label' => InventoryItem::categoryLabel($item->category),
             'unit' => $item->unit,
             'stock_qty' => $item->stock_qty,
             'reorder_level' => $item->reorder_level,
             'unit_cost' => $item->unit_cost,
             'supplier' => $item->supplier,
             'bill_image_url' => SecureUpload::url($item->bill_image_path),
-            'low_stock' => $item->stock_qty <= $item->reorder_level,
+            'low_stock' => $item->isLowStock(),
             'status' => $item->status,
             'recorded_by' => $item->creator?->name,
             'recorded_by_id' => $item->created_by,
         ];
+    }
+
+    private function categoryOptions(): array
+    {
+        $fromDb = InventoryItem::query()
+            ->whereNotNull('category')
+            ->where('category', '!=', '')
+            ->distinct()
+            ->orderBy('category')
+            ->pluck('category')
+            ->all();
+
+        $keys = collect(InventoryItem::CATEGORIES)
+            ->merge($fromDb)
+            ->unique()
+            ->values();
+
+        return $keys->map(fn (string $key) => [
+            'value' => $key,
+            'label' => InventoryItem::categoryLabel($key),
+        ])->all();
     }
 
     private function nextCode(): string

@@ -25,7 +25,6 @@ export function downloadCsv(filename, columns, rows) {
 export async function downloadCsvFromApi(path, filename = 'export.csv') {
   if (isSessionExpired()) {
     clearToken()
-    localStorage.removeItem('jadeed_erp_user')
     const error = new Error('Session expired. Please sign in again.')
     error.status = 401
     throw error

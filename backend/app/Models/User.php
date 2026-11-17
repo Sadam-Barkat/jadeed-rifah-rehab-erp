@@ -16,9 +16,19 @@ class User extends Authenticatable
 
     protected $fillable = [
         'staff_code',
+        'attendance_code',
         'name',
+        'father_name',
         'email',
         'phone',
+        'cnic',
+        'gender',
+        'date_of_birth',
+        'address',
+        'city',
+        'qualification',
+        'joined_on',
+        'photo_path',
         'password',
         'role_id',
         'is_active',
@@ -34,6 +44,8 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
+            'date_of_birth' => 'date',
+            'joined_on' => 'date',
             'password' => 'hashed',
             'is_active' => 'boolean',
             'must_change_password' => 'boolean',

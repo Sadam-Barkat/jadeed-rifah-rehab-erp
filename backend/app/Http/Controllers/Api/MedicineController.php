@@ -62,12 +62,17 @@ class MedicineController extends Controller
             $query->where('form', $form);
         }
 
+        if ($category = $request->get('category')) {
+            $query->where('category', $category);
+        }
+
         if ($search = trim((string) $request->get('search', ''))) {
             $query->where(function ($q) use ($search) {
                 $q->where('medicine_code', 'like', "%{$search}%")
                     ->orWhere('name', 'like', "%{$search}%")
                     ->orWhere('generic_name', 'like', "%{$search}%")
-                    ->orWhere('manufacturer', 'like', "%{$search}%");
+                    ->orWhere('manufacturer', 'like', "%{$search}%")
+                    ->orWhere('category', 'like', "%{$search}%");
             });
         }
 
@@ -82,6 +87,7 @@ class MedicineController extends Controller
                 'total' => $paginator->total(),
                 'forms' => self::FORMS,
                 'units' => self::UNITS,
+                'categories' => $this->categoryOptions(),
                 'staff' => $this->staffOptions(),
             ],
         ]);
@@ -92,6 +98,7 @@ class MedicineController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'generic_name' => ['nullable', 'string', 'max:255'],
+            'category' => ['nullable', 'string', 'max:60'],
             'form' => ['required', Rule::in(self::FORMS)],
             'strength' => ['nullable', 'string', 'max:50'],
             'unit' => ['required', Rule::in(self::UNITS)],
@@ -114,6 +121,7 @@ class MedicineController extends Controller
                 'medicine_code' => $this->nextCode(),
                 'name' => $data['name'],
                 'generic_name' => $data['generic_name'] ?? null,
+                'category' => Medicine::normalizeCategory($data['category'] ?? 'other'),
                 'form' => $data['form'],
                 'strength' => $data['strength'] ?? null,
                 'unit' => $data['unit'],
@@ -156,6 +164,7 @@ class MedicineController extends Controller
         $data = $request->validate([
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'generic_name' => ['nullable', 'string', 'max:255'],
+            'category' => ['nullable', 'string', 'max:60'],
             'form' => ['nullable', Rule::in(self::FORMS)],
             'strength' => ['nullable', 'string', 'max:50'],
             'unit' => ['nullable', Rule::in(self::UNITS)],
@@ -164,6 +173,10 @@ class MedicineController extends Controller
             'unit_price' => ['nullable', 'numeric', 'min:0'],
             'status' => ['nullable', Rule::in(['active', 'inactive'])],
         ]);
+
+        if (array_key_exists('category', $data)) {
+            $data['category'] = Medicine::normalizeCategory($data['category']);
+        }
 
         $medicine->update($data);
 
@@ -180,6 +193,8 @@ class MedicineController extends Controller
             'medicine_code' => $medicine->medicine_code,
             'name' => $medicine->name,
             'generic_name' => $medicine->generic_name,
+            'category' => $medicine->category ?: 'other',
+            'category_label' => Medicine::categoryLabel($medicine->category),
             'form' => $medicine->form,
             'strength' => $medicine->strength,
             'unit' => $medicine->unit,
@@ -192,6 +207,27 @@ class MedicineController extends Controller
             'recorded_by' => $medicine->creator?->name,
             'recorded_by_id' => $medicine->created_by,
         ];
+    }
+
+    private function categoryOptions(): array
+    {
+        $fromDb = Medicine::query()
+            ->whereNotNull('category')
+            ->where('category', '!=', '')
+            ->distinct()
+            ->orderBy('category')
+            ->pluck('category')
+            ->all();
+
+        $keys = collect(Medicine::CATEGORIES)
+            ->merge($fromDb)
+            ->unique()
+            ->values();
+
+        return $keys->map(fn (string $key) => [
+            'value' => $key,
+            'label' => Medicine::categoryLabel($key),
+        ])->all();
     }
 
     private function staffOptions(): array

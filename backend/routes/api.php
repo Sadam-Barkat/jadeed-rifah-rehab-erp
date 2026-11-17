@@ -2,12 +2,14 @@
 
 use App\Http\Controllers\Api\AccountEntryController;
 use App\Http\Controllers\Api\AdmissionController;
+use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BedController;
 use App\Http\Controllers\Api\DischargeController;
 use App\Http\Controllers\Api\DoctorController;
 use App\Http\Controllers\Api\DoctorRoundController;
+use App\Http\Controllers\Api\FacilityBillController;
 use App\Http\Controllers\Api\FeePackageController;
 use App\Http\Controllers\Api\InventoryItemController;
 use App\Http\Controllers\Api\InventoryMovementController;
@@ -21,6 +23,7 @@ use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\NursingNoteController;
 use App\Http\Controllers\Api\PatientController;
 use App\Http\Controllers\Api\PaymentController;
+use App\Http\Controllers\Api\PettyExpenseController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\SettingController;
 use App\Http\Controllers\Api\TreatmentPlanController;
@@ -34,6 +37,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
     Route::put('/me/account', [AuthController::class, 'updateAccount']);
     Route::post('/logout', [AuthController::class, 'logout']);
+
+    Route::get('/attendance/day', [AttendanceController::class, 'day']);
+    Route::middleware('module:visitors')->group(function () {
+        Route::post('/attendance/gate-check-in', [AttendanceController::class, 'gateCheckIn']);
+    });
 
     Route::get('/notifications', [NotificationController::class, 'index']);
     Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
@@ -139,6 +147,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware('module:visitors,patients')->group(function () {
         Route::get('/visitor-logs', [VisitorLogController::class, 'index']);
+        Route::get('/visitor-directory', [VisitorLogController::class, 'directory']);
         Route::post('/visitor-logs', [VisitorLogController::class, 'store']);
         Route::get('/visitor-logs/{visitorLog}', [VisitorLogController::class, 'show']);
         Route::put('/visitor-logs/{visitorLog}', [VisitorLogController::class, 'update']);
@@ -152,6 +161,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/inventory-movements', [InventoryMovementController::class, 'index']);
         Route::post('/inventory-movements', [InventoryMovementController::class, 'store']);
         Route::get('/inventory-beds', [BedController::class, 'forInventory']);
+    });
+
+    // Petty + facility bills: billing/finance enters; admin via billing or admin-finance.
+    Route::middleware('module:billing,accounts,admin-finance')->group(function () {
+        Route::get('/petty-expenses', [PettyExpenseController::class, 'index']);
+        Route::post('/petty-expenses', [PettyExpenseController::class, 'store']);
+        Route::post('/petty-expenses/{pettyExpense}/void', [PettyExpenseController::class, 'void']);
+        Route::get('/facility-bills', [FacilityBillController::class, 'index']);
+        Route::post('/facility-bills', [FacilityBillController::class, 'store']);
+        Route::post('/facility-bills/{facilityBill}/void', [FacilityBillController::class, 'void']);
     });
 
     Route::middleware('module:kitchen,inventory')->group(function () {
@@ -169,8 +188,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('module:users')->group(function () {
         Route::get('/roles', [UserController::class, 'roles']);
         Route::get('/users', [UserController::class, 'index']);
+        Route::get('/users/{user}', [UserController::class, 'show']);
         Route::post('/users', [UserController::class, 'store']);
         Route::put('/users/{user}', [UserController::class, 'update']);
+        Route::post('/users/{user}', [UserController::class, 'update']); // multipart profile + photo
     });
 
     Route::middleware(['module:users', 'admin'])->group(function () {

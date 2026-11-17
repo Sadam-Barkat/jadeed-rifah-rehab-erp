@@ -176,7 +176,8 @@ class PaymentController extends Controller
 
                 $paid = round((float) $invoice->paid_amount + $amount, 2);
                 $balance = round((float) $invoice->total_amount - $paid, 2);
-                $status = $balance <= 0 ? 'paid' : ($paid > 0 ? 'partial' : 'unpaid');
+                // Installments: remain unpaid until fully cleared (no partial status).
+                $status = $balance <= 0 ? 'paid' : 'unpaid';
 
                 $invoice->update([
                     'paid_amount' => $paid,

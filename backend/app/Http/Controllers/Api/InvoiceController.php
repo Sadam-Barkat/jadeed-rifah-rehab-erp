@@ -25,7 +25,7 @@ class InvoiceController extends Controller
 
         if ($request->boolean('due_only')) {
             $query->where('balance', '>', 0)
-                ->whereIn('status', ['unpaid', 'partial']);
+                ->where('status', 'unpaid');
         }
 
         if ($search = trim((string) $request->get('search', ''))) {
@@ -64,6 +64,7 @@ class InvoiceController extends Controller
             'amount' => ['nullable', 'numeric', 'min:0'],
             'package_name' => ['nullable', 'string', 'max:150'],
             'program_days' => ['nullable', 'integer', 'in:30,60,90'],
+            'installment_count' => ['nullable', 'integer', 'min:1', 'max:24'],
         ]);
 
         $admission = Admission::query()->with('patient')->findOrFail($data['admission_id']);
@@ -95,6 +96,7 @@ class InvoiceController extends Controller
         }
 
         $total = round($amount - $discount, 2);
+        $installmentCount = max(1, (int) ($data['installment_count'] ?? 1));
 
         $invoice = Invoice::query()->create([
             'invoice_code' => $this->nextCode(),
@@ -108,6 +110,7 @@ class InvoiceController extends Controller
             'amount' => $amount,
             'discount' => $discount,
             'total_amount' => $total,
+            'installment_count' => $installmentCount,
             'paid_amount' => 0,
             'balance' => $total,
             'status' => 'unpaid',
@@ -140,9 +143,15 @@ class InvoiceController extends Controller
             'amount' => $invoice->amount,
             'discount' => $invoice->discount,
             'total_amount' => $invoice->total_amount,
+            'installment_count' => (int) ($invoice->installment_count ?: 1),
+            'installment_amount' => round(
+                (float) $invoice->total_amount / max(1, (int) ($invoice->installment_count ?: 1)),
+                2
+            ),
             'paid_amount' => $invoice->paid_amount,
             'balance' => $invoice->balance,
-            'status' => $invoice->status,
+            'status' => $invoice->status === 'partial' ? 'unpaid' : $invoice->status,
+            'status_label' => $this->statusLabel($invoice),
             'issued_at' => $invoice->issued_at?->toDateTimeString(),
             'due_date' => $invoice->due_date?->format('Y-m-d'),
             'notes' => $invoice->notes,
@@ -174,6 +183,21 @@ class InvoiceController extends Controller
         }
 
         return $data;
+    }
+
+    private function statusLabel(Invoice $invoice): string
+    {
+        if ($invoice->status === 'paid') {
+            return 'Paid';
+        }
+        if ($invoice->status === 'void') {
+            return 'Void';
+        }
+        if ((float) $invoice->paid_amount > 0 && (float) $invoice->balance > 0) {
+            return 'Installments in progress';
+        }
+
+        return 'Unpaid';
     }
 
     private function nextCode(): string

@@ -83,10 +83,42 @@ class RoleUserSeeder extends Seeder
 
         User::query()
             ->where('email', '!=', 'admin@jadeed.local')
+            ->whereNotIn('email', [
+                'ahmad.pharmacist@jadeed.local',
+                'alishaba.pharmacist@jadeed.local',
+                'imran.inventory@jadeed.local',
+                'sara.inventory@jadeed.local',
+            ])
             ->update([
                 'is_active' => false,
                 'role_id' => $fallbackRoleId,
             ]);
+
+        $pharmacistRole = Role::query()->where('slug', 'pharmacist')->firstOrFail();
+
+        User::query()->updateOrCreate(
+            ['email' => 'ahmad.pharmacist@jadeed.local'],
+            [
+                'staff_code' => 'PHR-0001',
+                'name' => 'Ahmad',
+                'password' => Hash::make('Pharmacist@123'),
+                'role_id' => $pharmacistRole->id,
+                'is_active' => true,
+                'must_change_password' => false,
+            ]
+        );
+
+        User::query()->updateOrCreate(
+            ['email' => 'alishaba.pharmacist@jadeed.local'],
+            [
+                'staff_code' => 'PHR-0002',
+                'name' => 'Alishaba',
+                'password' => Hash::make('Pharmacist@123'),
+                'role_id' => $pharmacistRole->id,
+                'is_active' => true,
+                'must_change_password' => false,
+            ]
+        );
 
         Role::query()
             ->whereNotIn('slug', array_keys($roleNames))

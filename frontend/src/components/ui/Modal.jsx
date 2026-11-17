@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import Button from './Button'
 import './ui.css'
@@ -14,6 +15,7 @@ export default function Modal({
   danger = false,
   size = 'md',
   hideFooter = false,
+  confirm = false,
 }) {
   useEffect(() => {
     if (!open) return undefined
@@ -31,10 +33,13 @@ export default function Modal({
 
   if (!open) return null
 
-  return (
+  const sizeClass = size && size !== 'md' ? ` ui-modal-${size}` : ''
+  const confirmClass = confirm ? ' ui-modal-confirm' : ''
+
+  return createPortal(
     <div className="ui-modal-overlay" role="presentation" onClick={onClose}>
       <div
-        className={`ui-modal${size && size !== 'md' ? ` ui-modal-${size}` : ''}`}
+        className={`ui-modal${sizeClass}${confirmClass}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -43,7 +48,7 @@ export default function Modal({
         <div className="ui-modal-header">
           <h3>{title}</h3>
           <button type="button" className="ui-icon-btn" onClick={onClose} aria-label="Close">
-            <X size={18} />
+            <X size={18} strokeWidth={2.25} />
           </button>
         </div>
         <div className="ui-modal-body">{children}</div>
@@ -60,6 +65,7 @@ export default function Modal({
           </div>
         ) : null}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

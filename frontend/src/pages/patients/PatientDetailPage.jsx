@@ -108,7 +108,10 @@ export default function PatientDetailPage() {
 
       <div className="gov-form" id="patient-print">
         <header className="gov-form-head">
-          <p className="gov-org">Jadeed Rifah Rehab &amp; Care Center</p>
+          <div className="gov-brand-row">
+            <img className="gov-brand-logo" src="/brand/jadeed-logo.png?v=6" alt="" />
+            <p className="gov-org">Jadeed Rifah Rehab &amp; Care Center</p>
+          </div>
           <h2 className="gov-title">Patient Registration Form</h2>
           <p className="gov-meta">
             {patient.patient_code}

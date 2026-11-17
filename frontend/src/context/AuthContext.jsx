@@ -2,27 +2,19 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import {
   api,
   clearToken,
+  getStoredUser,
   getToken,
   isSessionExpired,
   setSessionTimeoutMinutes,
+  setStoredUser,
   setToken,
   touchActivity,
 } from '../lib/api'
 
 const AuthContext = createContext(null)
-const USER_KEY = 'jadeed_erp_user'
-
-function readUser() {
-  try {
-    const raw = localStorage.getItem(USER_KEY)
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
-}
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => readUser())
+  const [user, setUser] = useState(() => getStoredUser())
   const [booting, setBooting] = useState(Boolean(getToken()))
 
   useEffect(() => {
@@ -36,7 +28,6 @@ export function AuthProvider({ children }) {
 
       if (isSessionExpired()) {
         clearToken()
-        localStorage.removeItem(USER_KEY)
         setUser(null)
         setBooting(false)
         return
@@ -48,14 +39,13 @@ export function AuthProvider({ children }) {
           if (data.session_timeout_minutes) {
             setSessionTimeoutMinutes(data.session_timeout_minutes)
           }
-          localStorage.setItem(USER_KEY, JSON.stringify(data.user))
+          setStoredUser(data.user)
           setUser(data.user)
           touchActivity()
         }
       } catch {
         if (!cancelled) {
           clearToken()
-          localStorage.removeItem(USER_KEY)
           setUser(null)
         }
       } finally {
@@ -82,7 +72,6 @@ export function AuthProvider({ children }) {
     const timer = window.setInterval(() => {
       if (isSessionExpired()) {
         clearToken()
-        localStorage.removeItem(USER_KEY)
         setUser(null)
       }
     }, 30000)
@@ -108,14 +97,14 @@ export function AuthProvider({ children }) {
         if (data.session_timeout_minutes) {
           setSessionTimeoutMinutes(data.session_timeout_minutes)
         }
-        localStorage.setItem(USER_KEY, JSON.stringify(data.user))
+        setStoredUser(data.user)
         setUser(data.user)
         touchActivity()
         return data.user
       },
       async refreshUser(nextUser) {
         if (nextUser) {
-          localStorage.setItem(USER_KEY, JSON.stringify(nextUser))
+          setStoredUser(nextUser)
           setUser(nextUser)
           return nextUser
         }
@@ -123,7 +112,7 @@ export function AuthProvider({ children }) {
         if (data.session_timeout_minutes) {
           setSessionTimeoutMinutes(data.session_timeout_minutes)
         }
-        localStorage.setItem(USER_KEY, JSON.stringify(data.user))
+        setStoredUser(data.user)
         setUser(data.user)
         return data.user
       },
@@ -134,7 +123,6 @@ export function AuthProvider({ children }) {
           // ignore network logout errors
         }
         clearToken()
-        localStorage.removeItem(USER_KEY)
         setUser(null)
       },
     }),

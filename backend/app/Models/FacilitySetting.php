@@ -17,6 +17,7 @@ class FacilitySetting extends Model
         'timezone',
         'currency',
         'session_timeout_minutes',
+        'duty_pin',
         'notes',
         'updated_by',
     ];

@@ -35,7 +35,7 @@ export const MODULES = [
   { id: 'treatment', name: 'Treatment', path: '/app/treatment', group: 'Patient Care' },
   { id: 'discharge', name: 'Discharge', path: '/app/discharge', group: 'Patient Care' },
   { id: 'pharmacy', name: 'Pharmacy', path: '/app/pharmacy', group: 'Clinical' },
-  { id: 'billing', name: 'Billing', path: '/app/billing', group: 'Finance' },
+  { id: 'billing', name: 'Billing & Finance', path: '/app/billing', group: 'Finance' },
   { id: 'accounts', name: 'Accounts', path: '/app/accounts', group: 'Finance' },
   { id: 'reports', name: 'Reports', path: '/app/reports', group: 'Finance' },
   { id: 'inventory', name: 'Inventory', path: '/app/inventory', group: 'Operations' },

@@ -230,6 +230,24 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.attendance-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.attendance-chip.is-out {
+  background: #e8eef6;
+  color: #475569;
 }
 
 .topbar-kicker {

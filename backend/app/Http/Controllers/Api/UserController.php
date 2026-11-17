@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\Role;
 use App\Models\User;
 use App\Support\Audit;
+use App\Support\SecureUpload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -85,12 +87,24 @@ class UserController extends Controller
     {
         $data = $request->validate([
             'name' => ['required', 'string', 'max:150'],
+            'father_name' => ['nullable', 'string', 'max:150'],
             'email' => ['required', 'email', 'max:150', 'unique:users,email'],
             'phone' => ['required', 'string', 'max:30'],
+            'cnic' => ['nullable', 'string', 'max:25'],
+            'gender' => ['nullable', 'string', 'max:20'],
+            'date_of_birth' => ['nullable', 'date'],
+            'address' => ['nullable', 'string', 'max:255'],
+            'city' => ['nullable', 'string', 'max:100'],
+            'qualification' => ['nullable', 'string', 'max:150'],
+            'joined_on' => ['nullable', 'date'],
+            'photo' => ['nullable', 'image', 'max:40960'],
             'password' => ['nullable', 'string', 'min:8'],
             'role_id' => ['required', 'exists:roles,id'],
             'is_active' => ['nullable', 'boolean'],
             'generate_password' => ['nullable', 'boolean'],
+        ], [
+            'photo.max' => 'Photo must be 40 MB or smaller.',
+            'photo.image' => 'Photo must be a JPG, PNG, or WEBP image.',
         ]);
 
         $role = Role::query()->findOrFail($data['role_id']);
@@ -104,16 +118,29 @@ class UserController extends Controller
             $tempPassword = $this->generateTempPassword();
         }
 
-        $email = $data['email'];
+        $photoPath = null;
+        if ($request->hasFile('photo')) {
+            $photoPath = SecureUpload::storeImage($request->file('photo'), 'staff-photos', 'staff_');
+        }
 
         $user = User::query()->create([
             'staff_code' => $this->nextStaffCode($role->slug),
+            'attendance_code' => $this->nextAttendanceCode(),
             'name' => $data['name'],
-            'email' => $email,
+            'father_name' => $data['father_name'] ?? null,
+            'email' => $data['email'],
             'phone' => trim($data['phone']),
+            'cnic' => $data['cnic'] ?? null,
+            'gender' => $data['gender'] ?? null,
+            'date_of_birth' => $data['date_of_birth'] ?? null,
+            'address' => $data['address'] ?? null,
+            'city' => $data['city'] ?? null,
+            'qualification' => $data['qualification'] ?? null,
+            'joined_on' => $data['joined_on'] ?? now()->toDateString(),
+            'photo_path' => $photoPath,
             'password' => $tempPassword, // cast: hashed at rest; plaintext returned once only
             'role_id' => $role->id,
-            'is_active' => $data['is_active'] ?? true,
+            'is_active' => array_key_exists('is_active', $data) ? (bool) $data['is_active'] : true,
             'must_change_password' => true,
         ])->load('role');
 
@@ -126,20 +153,42 @@ class UserController extends Controller
         ], 201);
     }
 
+    public function show(User $user): JsonResponse
+    {
+        $user->loadMissing('role');
+        if (! in_array($user->role?->slug, self::STAFF_ROLE_SLUGS, true)) {
+            return response()->json(['message' => 'Staff not found.'], 404);
+        }
+
+        return response()->json(['data' => $this->payload($user)]);
+    }
+
     public function update(Request $request, User $user): JsonResponse
     {
         $data = $request->validate([
             'name' => ['sometimes', 'required', 'string', 'max:150'],
+            'father_name' => ['nullable', 'string', 'max:150'],
             'email' => ['sometimes', 'required', 'email', 'max:150', Rule::unique('users', 'email')->ignore($user->id)],
             'phone' => ['sometimes', 'required', 'string', 'max:30'],
+            'cnic' => ['nullable', 'string', 'max:25'],
+            'gender' => ['nullable', 'string', 'max:20'],
+            'date_of_birth' => ['nullable', 'date'],
+            'address' => ['nullable', 'string', 'max:255'],
+            'city' => ['nullable', 'string', 'max:100'],
+            'qualification' => ['nullable', 'string', 'max:150'],
+            'joined_on' => ['nullable', 'date'],
+            'photo' => ['nullable', 'image', 'max:40960'],
             'password' => ['nullable', 'string', 'min:8'],
             'role_id' => ['sometimes', 'required', 'exists:roles,id'],
             'is_active' => ['nullable', 'boolean'],
             'must_change_password' => ['nullable', 'boolean'],
             'reset_password' => ['nullable', 'boolean'],
+        ], [
+            'photo.max' => 'Photo must be 40 MB or smaller.',
+            'photo.image' => 'Photo must be a JPG, PNG, or WEBP image.',
         ]);
 
-        if ($request->user()->id === $user->id && array_key_exists('is_active', $data) && ! $data['is_active']) {
+        if ($request->user()->id === $user->id && $request->has('is_active') && ! $request->boolean('is_active')) {
             return response()->json(['message' => 'You cannot deactivate your own account.'], 422);
         }
 
@@ -155,12 +204,25 @@ class UserController extends Controller
             $tempPassword = $this->generateTempPassword();
             $data['password'] = $tempPassword;
             $data['must_change_password'] = true;
+            if (! $user->attendance_code) {
+                $data['attendance_code'] = $this->nextAttendanceCode();
+            }
         }
 
-        $payload = collect($data)->except(['password', 'reset_password'])->all();
+        $payload = collect($data)->except(['password', 'reset_password', 'photo'])->all();
+        if ($request->has('is_active')) {
+            $payload['is_active'] = $request->boolean('is_active');
+        }
         if (! empty($data['password'])) {
             $payload['password'] = $data['password'];
             $payload['must_change_password'] = $data['must_change_password'] ?? true;
+        }
+
+        if ($request->hasFile('photo')) {
+            if ($user->photo_path && Storage::disk('public')->exists($user->photo_path)) {
+                Storage::disk('public')->delete($user->photo_path);
+            }
+            $payload['photo_path'] = SecureUpload::storeImage($request->file('photo'), 'staff-photos', 'staff_');
         }
 
         $user->update($payload);
@@ -196,14 +258,27 @@ class UserController extends Controller
 
     private function payload(User $user): array
     {
+        $joined = $user->joined_on ?: $user->created_at?->toDateString();
+
         return [
             'id' => $user->id,
             'staff_code' => $user->staff_code,
+            'attendance_code' => $user->attendance_code,
             'name' => $user->name,
+            'father_name' => $user->father_name,
             'email' => $user->email,
             'phone' => $user->phone,
+            'cnic' => $user->cnic,
+            'gender' => $user->gender,
+            'date_of_birth' => $user->date_of_birth?->toDateString(),
+            'address' => $user->address,
+            'city' => $user->city,
+            'qualification' => $user->qualification,
             'is_active' => (bool) $user->is_active,
             'must_change_password' => (bool) $user->must_change_password,
+            'joined_at' => $joined,
+            'joined_at_label' => $joined ? \Carbon\Carbon::parse($joined)->format('d M Y') : null,
+            'photo_url' => SecureUpload::url($user->photo_path),
             'role' => [
                 'id' => $user->role?->id,
                 'name' => $user->role?->name,
@@ -218,6 +293,7 @@ class UserController extends Controller
         return [
             'name' => $user->name,
             'staff_code' => $user->staff_code,
+            'attendance_code' => $user->attendance_code,
             'email' => $user->email,
             'phone' => $user->phone,
             'temporary_password' => $plainPassword,
@@ -228,6 +304,18 @@ class UserController extends Controller
     private function generateTempPassword(): string
     {
         return 'Jr@'.Str::upper(Str::random(4)).rand(10, 99);
+    }
+
+    private function nextAttendanceCode(): string
+    {
+        for ($i = 0; $i < 40; $i++) {
+            $code = str_pad((string) random_int(1000, 9999), 4, '0', STR_PAD_LEFT);
+            if (! User::query()->where('attendance_code', $code)->exists()) {
+                return $code;
+            }
+        }
+
+        throw new \RuntimeException('Could not allocate attendance code');
     }
 
     private function nextStaffCode(string $roleSlug): string

@@ -28,6 +28,7 @@ class VisitorLogController extends Controller
                 $q->where('visit_code', 'like', "%{$search}%")
                     ->orWhere('visitor_name', 'like', "%{$search}%")
                     ->orWhere('phone', 'like', "%{$search}%")
+                    ->orWhere('cnic', 'like', "%{$search}%")
                     ->orWhereHas('patient', function ($pq) use ($search) {
                         $pq->where('patient_code', 'like', "%{$search}%")
                             ->orWhere('first_name', 'like', "%{$search}%")
@@ -49,35 +50,89 @@ class VisitorLogController extends Controller
         ]);
     }
 
+    public function directory(Request $request): JsonResponse
+    {
+        $search = trim((string) $request->get('q', ''));
+        $logs = VisitorLog::query()
+            ->whereNotNull('cnic')
+            ->where('cnic', '!=', '')
+            ->latest('check_in_at')
+            ->limit(800)
+            ->get(['visitor_name', 'cnic', 'phone', 'check_in_at']);
+
+        $byCnic = [];
+        foreach ($logs as $log) {
+            $key = $this->normalizeCnic($log->cnic);
+            if ($key === '' || isset($byCnic[$key])) {
+                continue;
+            }
+            $byCnic[$key] = [
+                'cnic_key' => $key,
+                'visitor_name' => $log->visitor_name,
+                'cnic' => $log->cnic,
+                'phone' => $log->phone,
+            ];
+        }
+
+        $list = collect($byCnic)->values();
+        if ($search !== '') {
+            $q = mb_strtolower($search);
+            $digits = $this->normalizeCnic($search);
+            $list = $list->filter(function (array $row) use ($q, $digits) {
+                $name = mb_strtolower((string) $row['visitor_name']);
+                $cnic = $this->normalizeCnic($row['cnic']);
+
+                return str_contains($name, $q)
+                    || ($digits !== '' && str_contains($cnic, $digits))
+                    || str_contains(mb_strtolower((string) $row['cnic']), $q);
+            })->values();
+        }
+
+        return response()->json([
+            'data' => $list->sortBy('visitor_name', SORT_NATURAL | SORT_FLAG_CASE)->values()->take(200)->all(),
+        ]);
+    }
+
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'admission_id' => ['required', 'exists:admissions,id'],
+            'admission_id' => ['nullable', 'exists:admissions,id'],
             'visitor_name' => ['required', 'string', 'max:150'],
-            'party_size' => ['nullable', 'integer', 'min:1', 'max:20'],
+            'party_size' => ['required', 'integer', 'min:1', 'max:20'],
             'relation' => ['nullable', Rule::in(['relative', 'friend', 'other'])],
-            'phone' => ['required', 'string', 'max:30'],
-            'cnic' => ['nullable', 'string', 'max:20'],
+            'phone' => ['nullable', 'string', 'max:30'],
+            'cnic' => ['required', 'string', 'max:20'],
             'purpose' => ['nullable', 'string', 'max:255'],
             'check_in_at' => ['nullable', 'date'],
             'items_brought' => ['nullable', 'string'],
             'notes' => ['nullable', 'string'],
         ]);
 
-        $admission = Admission::query()->findOrFail($data['admission_id']);
-        if ($admission->status !== 'active') {
-            return response()->json(['message' => 'Visitor check-in requires an active admission.'], 422);
+        $cnic = trim($data['cnic']);
+        $cnicKey = $this->normalizeCnic($cnic);
+        if ($cnicKey === '') {
+            return response()->json(['message' => 'CNIC is required.'], 422);
+        }
+
+        $admission = null;
+        $patientId = null;
+        if (! empty($data['admission_id'])) {
+            $admission = Admission::query()->findOrFail($data['admission_id']);
+            if ($admission->status !== 'active') {
+                return response()->json(['message' => 'Select an active admission, or leave patient empty.'], 422);
+            }
+            $patientId = $admission->patient_id;
         }
 
         $visit = VisitorLog::query()->create([
             'visit_code' => $this->nextCode(),
-            'admission_id' => $admission->id,
-            'patient_id' => $admission->patient_id,
-            'visitor_name' => $data['visitor_name'],
-            'party_size' => $data['party_size'] ?? 1,
+            'admission_id' => $admission?->id,
+            'patient_id' => $patientId,
+            'visitor_name' => trim($data['visitor_name']),
+            'party_size' => max(1, (int) ($data['party_size'] ?? 1)),
             'relation' => $data['relation'] ?? null,
             'phone' => $data['phone'] ?? null,
-            'cnic' => $data['cnic'] ?? null,
+            'cnic' => $cnic,
             'purpose' => $data['purpose'] ?? null,
             'check_in_at' => $data['check_in_at'] ?? now(),
             'items_brought' => $data['items_brought'] ?? null,
@@ -87,7 +142,7 @@ class VisitorLogController extends Controller
         ])->load(['patient', 'admission', 'creator']);
 
         return response()->json([
-            'message' => 'Visitor checked in',
+            'message' => 'Visitor logged',
             'data' => $this->payload($visit),
         ], 201);
     }
@@ -149,17 +204,22 @@ class VisitorLogController extends Controller
             'notes' => $visit->notes,
             'status' => $visit->status,
             'logged_by' => $visit->creator?->name,
-            'patient' => [
+            'patient' => $visit->patient_id ? [
                 'id' => $visit->patient?->id,
                 'patient_code' => $visit->patient?->patient_code,
                 'full_name' => $visit->patient?->full_name,
-            ],
-            'admission' => [
+            ] : null,
+            'admission' => $visit->admission_id ? [
                 'id' => $visit->admission?->id,
                 'admission_code' => $visit->admission?->admission_code,
                 'status' => $visit->admission?->status,
-            ],
+            ] : null,
         ];
+    }
+
+    private function normalizeCnic(?string $cnic): string
+    {
+        return preg_replace('/\D+/', '', (string) $cnic) ?: '';
     }
 
     private function nextCode(): string

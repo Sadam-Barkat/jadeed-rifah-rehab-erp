@@ -29,6 +29,7 @@ class SettingController extends Controller
             'timezone' => ['nullable', 'string', 'max:64'],
             'currency' => ['nullable', 'string', 'max:8'],
             'session_timeout_minutes' => ['nullable', 'integer', 'min:15', 'max:720'],
+            'duty_pin' => ['nullable', 'string', 'min:4', 'max:12'],
             'notes' => ['nullable', 'string'],
         ]);
 
@@ -38,6 +39,7 @@ class SettingController extends Controller
             'timezone' => $data['timezone'] ?? $setting->timezone,
             'currency' => $data['currency'] ?? $setting->currency,
             'session_timeout_minutes' => $data['session_timeout_minutes'] ?? $setting->session_timeout_minutes,
+            'duty_pin' => $data['duty_pin'] ?? $setting->duty_pin ?? '2468',
             'updated_by' => $request->user()->id,
         ]);
 
@@ -67,6 +69,7 @@ class SettingController extends Controller
             'timezone' => 'Asia/Karachi',
             'currency' => 'PKR',
             'session_timeout_minutes' => 60,
+            'duty_pin' => '2468',
         ])->load(['updater']);
     }
 
@@ -83,6 +86,7 @@ class SettingController extends Controller
             'timezone' => $setting->timezone,
             'currency' => $setting->currency,
             'session_timeout_minutes' => $setting->session_timeout_minutes,
+            'duty_pin' => $setting->duty_pin ?: '2468',
             'notes' => $setting->notes,
             'updated_by' => $setting->updater?->name,
             'updated_at' => $setting->updated_at?->toDateTimeString(),

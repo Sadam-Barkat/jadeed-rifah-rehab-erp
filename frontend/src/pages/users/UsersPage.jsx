@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Copy, MessageCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
@@ -10,8 +11,16 @@ import '../pages.css'
 
 const emptyForm = {
   name: '',
+  father_name: '',
   email: '',
   phone: '',
+  cnic: '',
+  gender: '',
+  date_of_birth: '',
+  address: '',
+  city: '',
+  qualification: '',
+  joined_on: '',
   role_id: '',
   is_active: true,
 }
@@ -49,6 +58,9 @@ function credentialsMessage(creds) {
     '',
     `Email: ${creds.email || '—'}`,
     `Password: ${creds.temporary_password || '—'}`,
+    `Attendance code: ${creds.attendance_code || '—'}`,
+    '',
+    'Show attendance code at the gate for daily check-in.',
   ].join('\n')
 }
 
@@ -65,10 +77,40 @@ export default function UsersPage({ embedded = false }) {
   const [addOpen, setAddOpen] = useState(false)
   const [editUser, setEditUser] = useState(null)
   const [form, setForm] = useState(emptyForm)
+  const [photoFile, setPhotoFile] = useState(null)
   const [credentials, setCredentials] = useState(null)
 
   function setField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  function buildStaffFormData(extra = {}) {
+    const fd = new FormData()
+    const textFields = [
+      'name',
+      'father_name',
+      'email',
+      'phone',
+      'cnic',
+      'gender',
+      'date_of_birth',
+      'address',
+      'city',
+      'qualification',
+      'joined_on',
+      'role_id',
+    ]
+    textFields.forEach((key) => {
+      const value = form[key]
+      if (value !== '' && value !== null && value !== undefined) {
+        fd.append(key, String(value).trim ? String(value).trim() : String(value))
+      }
+    })
+    Object.entries(extra).forEach(([key, value]) => {
+      fd.append(key, value)
+    })
+    if (photoFile) fd.append('photo', photoFile)
+    return fd
   }
 
   useEffect(() => {
@@ -118,15 +160,25 @@ export default function UsersPage({ embedded = false }) {
 
   function openAdd() {
     setForm(emptyForm)
+    setPhotoFile(null)
     setAddOpen(true)
   }
 
   function openEdit(user) {
     setEditUser(user)
+    setPhotoFile(null)
     setForm({
       name: user.name || '',
+      father_name: user.father_name || '',
       email: user.email || '',
       phone: user.phone || '',
+      cnic: user.cnic || '',
+      gender: user.gender || '',
+      date_of_birth: user.date_of_birth || '',
+      address: user.address || '',
+      city: user.city || '',
+      qualification: user.qualification || '',
+      joined_on: user.joined_at || '',
       role_id: user.role?.id ? String(user.role.id) : '',
       is_active: Boolean(user.is_active),
     })
@@ -139,19 +191,12 @@ export default function UsersPage({ embedded = false }) {
     }
     setSaving(true)
     try {
-      const data = await api('/users', {
-        method: 'POST',
-        body: {
-          name: form.name.trim(),
-          email: form.email.trim(),
-          phone: form.phone.trim(),
-          role_id: Number(form.role_id),
-          generate_password: true,
-        },
-      })
+      const body = buildStaffFormData({ generate_password: '1' })
+      const data = await api('/users', { method: 'POST', body })
       toast.success(`${data.data.name} created`)
       setAddOpen(false)
       setForm(emptyForm)
+      setPhotoFile(null)
       setCredentials(data.credentials || null)
       setPage(1)
       await load(1)
@@ -170,18 +215,13 @@ export default function UsersPage({ embedded = false }) {
     }
     setSaving(true)
     try {
-      await api(`/users/${editUser.id}`, {
-        method: 'PUT',
-        body: {
-          name: form.name.trim(),
-          email: form.email.trim(),
-          phone: form.phone.trim(),
-          role_id: Number(form.role_id),
-          is_active: Boolean(form.is_active),
-        },
+      const body = buildStaffFormData({
+        is_active: form.is_active ? '1' : '0',
       })
+      await api(`/users/${editUser.id}`, { method: 'POST', body })
       toast.success('Staff updated')
       setEditUser(null)
+      setPhotoFile(null)
       await load(page)
     } catch (err) {
       toast.error(err.message || 'Update failed')
@@ -241,6 +281,15 @@ export default function UsersPage({ embedded = false }) {
         />
       </div>
       <div className="ui-field">
+        <label htmlFor="staff_father">Father name</label>
+        <input
+          id="staff_father"
+          className="ui-input"
+          value={form.father_name}
+          onChange={(e) => setField('father_name', e.target.value)}
+        />
+      </div>
+      <div className="ui-field">
         <label htmlFor="staff_email">Email</label>
         <input
           id="staff_email"
@@ -264,6 +313,50 @@ export default function UsersPage({ embedded = false }) {
         />
       </div>
       <div className="ui-field">
+        <label htmlFor="staff_cnic">CNIC</label>
+        <input
+          id="staff_cnic"
+          className="ui-input"
+          placeholder="xxxxx-xxxxxxx-x"
+          value={form.cnic}
+          onChange={(e) => setField('cnic', e.target.value)}
+        />
+      </div>
+      <div className="ui-field">
+        <label htmlFor="staff_gender">Gender</label>
+        <select
+          id="staff_gender"
+          className="ui-select"
+          value={form.gender}
+          onChange={(e) => setField('gender', e.target.value)}
+        >
+          <option value="">Select</option>
+          <option value="male">Male</option>
+          <option value="female">Female</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div className="ui-field">
+        <label htmlFor="staff_dob">Date of birth</label>
+        <input
+          id="staff_dob"
+          type="date"
+          className="ui-input"
+          value={form.date_of_birth}
+          onChange={(e) => setField('date_of_birth', e.target.value)}
+        />
+      </div>
+      <div className="ui-field">
+        <label htmlFor="staff_joined">Joined on</label>
+        <input
+          id="staff_joined"
+          type="date"
+          className="ui-input"
+          value={form.joined_on}
+          onChange={(e) => setField('joined_on', e.target.value)}
+        />
+      </div>
+      <div className="ui-field">
         <label htmlFor="staff_role">Role</label>
         <select
           id="staff_role"
@@ -277,6 +370,52 @@ export default function UsersPage({ embedded = false }) {
             <option key={r.id} value={r.id}>{r.name}</option>
           ))}
         </select>
+      </div>
+      <div className="ui-field">
+        <label htmlFor="staff_qualification">Qualification</label>
+        <input
+          id="staff_qualification"
+          className="ui-input"
+          value={form.qualification}
+          onChange={(e) => setField('qualification', e.target.value)}
+        />
+      </div>
+      <div className="ui-field">
+        <label htmlFor="staff_city">City</label>
+        <input
+          id="staff_city"
+          className="ui-input"
+          value={form.city}
+          onChange={(e) => setField('city', e.target.value)}
+        />
+      </div>
+      <div className="ui-field full">
+        <label htmlFor="staff_address">Address</label>
+        <input
+          id="staff_address"
+          className="ui-input"
+          value={form.address}
+          onChange={(e) => setField('address', e.target.value)}
+        />
+      </div>
+      <div className="ui-field">
+        <label htmlFor="staff_photo">Photo</label>
+        <input
+          id="staff_photo"
+          className="ui-input"
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          onChange={(e) => {
+            const file = e.target.files?.[0] || null
+            if (file && file.size > 40 * 1024 * 1024) {
+              toast.error('Photo must be 40 MB or smaller.')
+              e.target.value = ''
+              setPhotoFile(null)
+              return
+            }
+            setPhotoFile(file)
+          }}
+        />
       </div>
       {editUser ? (
         <div className="ui-field">
@@ -344,12 +483,15 @@ export default function UsersPage({ embedded = false }) {
       ) : users.length === 0 ? (
         <p className="panel-copy">No staff found.</p>
       ) : (
-        <div className="entity-card-grid scroll-panel dash-scroll-panel">
+        <div className="entity-card-grid">
           {users.map((u) => (
             <article key={u.id} className={`entity-card ${u.is_active ? '' : 'is-inactive'}`}>
               <div className="entity-card-top">
                 <div>
-                  <p className="entity-card-code">{u.staff_code || '—'}</p>
+                  <p className="entity-card-code">
+                    {u.staff_code || '—'}
+                    {u.attendance_code ? ` · PIN ${u.attendance_code}` : ''}
+                  </p>
                   <h3>{u.name}</h3>
                 </div>
                 <span className={`badge ${u.is_active ? 'badge-success' : 'badge-muted'}`}>
@@ -371,6 +513,13 @@ export default function UsersPage({ embedded = false }) {
                 </div>
               </dl>
               <div className="entity-card-actions">
+                <Link
+                  className="ui-btn ui-btn-secondary ui-btn-sm"
+                  to={`/app/users/${u.id}`}
+                  state={embedded ? { backTo: '/app/management?tab=staff' } : { backTo: '/app/users' }}
+                >
+                  View
+                </Link>
                 <Button type="button" size="sm" variant="secondary" onClick={() => openEdit(u)}>
                   Edit
                 </Button>
@@ -396,6 +545,7 @@ export default function UsersPage({ embedded = false }) {
       <Modal
         open={addOpen}
         title="Add staff"
+        size="lg"
         confirmLabel={saving ? 'Creating…' : 'Create'}
         onClose={() => !saving && setAddOpen(false)}
         onConfirm={handleCreate}
@@ -406,6 +556,7 @@ export default function UsersPage({ embedded = false }) {
       <Modal
         open={Boolean(editUser)}
         title="Edit staff"
+        size="lg"
         confirmLabel={saving ? 'Saving…' : 'Save'}
         onClose={() => !saving && setEditUser(null)}
         onConfirm={handleUpdate}
@@ -429,6 +580,10 @@ export default function UsersPage({ embedded = false }) {
               <div>
                 <span>Password</span>
                 <strong className="cred-password">{credentials.temporary_password}</strong>
+              </div>
+              <div>
+                <span>Attendance code</span>
+                <strong className="cred-password">{credentials.attendance_code || '—'}</strong>
               </div>
             </div>
             <div className="cred-actions">

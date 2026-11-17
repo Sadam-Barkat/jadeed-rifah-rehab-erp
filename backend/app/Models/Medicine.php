@@ -8,10 +8,46 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Medicine extends Model
 {
+    /** Default + common rehab/pharmacy categories (slug keys). */
+    public const CATEGORIES = [
+        'analgesics',
+        'antibiotics',
+        'antidepressants',
+        'anxiolytics',
+        'antipsychotics',
+        'vitamins',
+        'detox_support',
+        'gastrointestinal',
+        'cardiovascular',
+        'respiratory',
+        'antihistamines',
+        'topical',
+        'iv_fluids',
+        'other',
+    ];
+
+    public const CATEGORY_LABELS = [
+        'analgesics' => 'Analgesics',
+        'antibiotics' => 'Antibiotics',
+        'antidepressants' => 'Antidepressants',
+        'anxiolytics' => 'Anxiolytics / sedatives',
+        'antipsychotics' => 'Antipsychotics',
+        'vitamins' => 'Vitamins & supplements',
+        'detox_support' => 'Detox / withdrawal support',
+        'gastrointestinal' => 'Gastrointestinal',
+        'cardiovascular' => 'Cardiovascular',
+        'respiratory' => 'Respiratory',
+        'antihistamines' => 'Antihistamines',
+        'topical' => 'Topical',
+        'iv_fluids' => 'IV / fluids',
+        'other' => 'Other',
+    ];
+
     protected $fillable = [
         'medicine_code',
         'name',
         'generic_name',
+        'category',
         'form',
         'strength',
         'unit',
@@ -22,6 +58,25 @@ class Medicine extends Model
         'status',
         'created_by',
     ];
+
+    public static function categoryLabel(?string $key): string
+    {
+        $key = $key ?: 'other';
+        if (isset(self::CATEGORY_LABELS[$key])) {
+            return self::CATEGORY_LABELS[$key];
+        }
+
+        return ucwords(str_replace('_', ' ', $key));
+    }
+
+    public static function normalizeCategory(?string $raw): string
+    {
+        $s = strtolower(trim((string) $raw));
+        $s = preg_replace('/[^a-z0-9]+/', '_', $s) ?? '';
+        $s = trim($s, '_');
+
+        return $s !== '' ? $s : 'other';
+    }
 
     protected function casts(): array
     {

@@ -140,7 +140,15 @@ export default function Sidebar({ open, collapsed, onNavigate, onToggleCollapse 
                   to={item.path}
                   className={({ isActive }) => `nav-link ${isActive ? 'active' : ''} ${hasAlert ? 'has-stock-alert' : ''}`}
                   onClick={onNavigate}
-                  title={hasAlert ? `${item.name} — low stock` : item.name}
+                  title={
+                    hasAlert
+                      ? item.id === 'admin-pharmacy'
+                        ? 'Pharmacy — low medicine stock, restock needed'
+                        : item.id === 'admin-inventory'
+                          ? 'Inventory — low stock items, restock needed'
+                          : `${item.name} — alert`
+                      : item.name
+                  }
                 >
                   <span className="nav-link-icon-wrap">
                     <NavIcon id={item.id} />
