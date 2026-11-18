@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Admission;
 use App\Models\Bed;
 use App\Models\Patient;
+use App\Services\AppNotifier;
 use App\Support\Audit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -113,6 +114,23 @@ class AdmissionController extends Controller
         });
 
         Audit::log('admission.create', 'admission', 'admission', $admission->id, "Admission {$admission->admission_code}");
+
+        if ($activate) {
+            $patient->refresh();
+            app(AppNotifier::class)->notifyRoleSlugs(
+                ['finance'],
+                'patient.admitted',
+                'New admission — collect fee',
+                ($patient->full_name ?: 'Patient').' · '.(int) $admission->program_days.'-day plan',
+                '/app/billing?tab=fees&fees=create',
+                [
+                    'patient_id' => $patient->id,
+                    'patient_code' => $patient->patient_code,
+                    'admission_id' => $admission->id,
+                ],
+                $request->user()->id,
+            );
+        }
 
         return response()->json([
             'message' => 'Admission saved successfully',

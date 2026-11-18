@@ -12,8 +12,8 @@ Update this file whenever optimization work is applied or skipped.
 | 4 | Database indexing | Done | patients + clinical + ops + audit_logs | audit action/module/created_at indexes |
 | 5 | Slim API responses | Done | PatientController + ReportController | overview aggregates only needed KPIs |
 | 8 | Avoid N+1 queries (Laravel eager load) | Done | Patient + DoctorRound index | doctor/patient/admission eager load |
-| 13 | Inner scroll for growing lists | In Progress | Visitors + Staff + Patients + Inventory + Pharmacy + Petty expenses + dashboard + Management cards | `.entity-card-grid` scroll + pagination (12/page) |
-| 14 | Search on expandable lists | In Progress | Visitors + Staff + Patients + Inventory + Pharmacy + Petty expenses + Management | Debounced search + role/status filter tabs |
+| 13 | Inner scroll for growing lists | In Progress | Visitors + Staff + Patients + Inventory + Pharmacy + Petty + Fees tabs + dashboard + Management cards | Fees lists use `.scroll-panel` / card grid |
+| 14 | Search on expandable lists | In Progress | Visitors + Staff + Patients + Inventory + Pharmacy + Petty + Fees + Management | Debounced search on Fees tabs |
 
 ## Should (light alongside, deep polish later)
 
@@ -37,4 +37,4 @@ Update this file whenever optimization work is applied or skipped.
 - Must remaining: 0 Todo (2 In Progress: scroll + search rollout)
 - Should remaining: 1 Todo + 1 In Progress (image/file)
 - Later: 3
-- Last updated: 2026-11-17 (visitors gate form + admin KPIs; list search)
+- Last updated: 2026-11-18 (Fees & payments inner tabs + plan approvals)

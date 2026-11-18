@@ -13,15 +13,17 @@ class Invoice extends Model
         'admission_id',
         'patient_id',
         'fee_package_id',
+        'fee_plan_id',
         'package_name',
         'program_days',
         'amount',
         'discount',
-            'total_amount',
-            'installment_count',
-            'paid_amount',
-            'balance',
-            'status',
+        'total_amount',
+        'installment_count',
+        'installment_no',
+        'paid_amount',
+        'balance',
+        'status',
         'issued_at',
         'due_date',
         'notes',
@@ -36,6 +38,7 @@ class Invoice extends Model
             'discount' => 'float',
             'total_amount' => 'float',
             'installment_count' => 'integer',
+            'installment_no' => 'integer',
             'paid_amount' => 'float',
             'balance' => 'float',
             'issued_at' => 'datetime',
@@ -56,6 +59,11 @@ class Invoice extends Model
     public function feePackage(): BelongsTo
     {
         return $this->belongsTo(FeePackage::class);
+    }
+
+    public function feePlan(): BelongsTo
+    {
+        return $this->belongsTo(FeePlan::class);
     }
 
     public function payments(): HasMany

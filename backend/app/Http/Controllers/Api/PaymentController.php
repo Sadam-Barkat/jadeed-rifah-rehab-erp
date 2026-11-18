@@ -45,8 +45,53 @@ class PaymentController extends Controller
 
         $paginator = $query->paginate($perPage);
 
+        $items = collect($paginator->items());
+        $admissionIds = $items->map(fn (Payment $p) => $p->invoice?->admission_id)->filter()->unique()->values();
+        $progressByAdmission = [];
+        if ($admissionIds->isNotEmpty()) {
+            $siblingInvoices = Invoice::query()
+                ->whereIn('admission_id', $admissionIds)
+                ->where('status', '!=', 'void')
+                ->withExists([
+                    'payments as has_pending_payment' => fn ($q) => $q->where('approval_status', 'pending'),
+                ])
+                ->get(['id', 'admission_id', 'status', 'balance', 'installment_no']);
+
+            foreach ($siblingInvoices->groupBy('admission_id') as $admissionId => $rows) {
+                $paid = 0;
+                $due = 0;
+                $awaiting = 0;
+                foreach ($rows as $inv) {
+                    if ($inv->status === 'paid' || (float) $inv->balance <= 0) {
+                        $paid++;
+                    } elseif ((bool) ($inv->has_pending_payment ?? false)) {
+                        $awaiting++;
+                    } else {
+                        $due++;
+                    }
+                }
+                $progressByAdmission[(int) $admissionId] = [
+                    'total_invoices' => $rows->count(),
+                    'paid_count' => $paid,
+                    'due_count' => $due,
+                    'awaiting_count' => $awaiting,
+                ];
+            }
+        }
+
         return response()->json([
-            'data' => collect($paginator->items())->map(fn (Payment $p) => $this->payload($p)),
+            'data' => $items->map(function (Payment $p) use ($progressByAdmission) {
+                $payload = $this->payload($p);
+                $admissionId = (int) ($p->invoice?->admission_id ?: 0);
+                $payload['progress'] = $progressByAdmission[$admissionId] ?? [
+                    'total_invoices' => 1,
+                    'paid_count' => 0,
+                    'due_count' => 1,
+                    'awaiting_count' => 0,
+                ];
+
+                return $payload;
+            })->values(),
             'meta' => [
                 'current_page' => $paginator->currentPage(),
                 'last_page' => $paginator->lastPage(),
@@ -61,96 +106,139 @@ class PaymentController extends Controller
     {
         $payment->load(['patient', 'invoice', 'creator', 'approver']);
 
-        return response()->json(['data' => $this->payload($payment)]);
+        return response()->json(['data' => $this->payload($payment, true)]);
     }
 
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'invoice_id' => ['required', 'exists:invoices,id'],
-            'amount' => ['required', 'numeric', 'min:0.01'],
+            'invoice_id' => ['nullable', 'exists:invoices,id'],
+            'invoice_ids' => ['nullable', 'array', 'min:1'],
+            'invoice_ids.*' => ['integer', 'exists:invoices,id'],
             'method' => ['nullable', Rule::in(['cash', 'card', 'online', 'bank', 'jazzcash', 'easypaisa', 'other'])],
             'paid_at' => ['nullable', 'date'],
             'reference' => ['nullable', 'string', 'max:150'],
             'notes' => ['nullable', 'string'],
-            'installment_no' => ['nullable', 'integer', 'min:1', 'max:60'],
-            'proof_image' => ['required', 'file', 'max:5120', 'mimes:jpg,jpeg,png,webp'],
+            'proof_image' => ['required', 'file', 'max:40960', 'mimes:jpg,jpeg,png,webp'],
+        ], [
+            'proof_image.max' => 'Payment proof must be 40 MB or smaller.',
+            'proof_image.mimes' => 'Payment proof must be a JPG, PNG, or WEBP image.',
+            'proof_image.required' => 'Payment proof image is required.',
         ]);
+
+        $invoiceIds = collect($data['invoice_ids'] ?? [])
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values();
+        if ($invoiceIds->isEmpty() && ! empty($data['invoice_id'])) {
+            $invoiceIds = collect([(int) $data['invoice_id']]);
+        }
+        if ($invoiceIds->isEmpty()) {
+            return response()->json(['message' => 'Select at least one invoice.'], 422);
+        }
 
         $proofPath = SecureUpload::storeImage($request->file('proof_image'), 'payment-proofs', 'pay_');
 
         try {
-            $payment = DB::transaction(function () use ($request, $data, $proofPath) {
-                $invoice = Invoice::query()->lockForUpdate()->findOrFail($data['invoice_id']);
+            $payments = DB::transaction(function () use ($request, $data, $proofPath, $invoiceIds) {
+                $created = [];
+                $patientId = null;
+                $admissionId = null;
 
-                if (in_array($invoice->status, ['paid', 'void'], true)) {
-                    throw new \RuntimeException('Cannot record payment on a '.$invoice->status.' invoice.');
-                }
+                foreach ($invoiceIds as $invoiceId) {
+                    $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoiceId);
 
-                $amount = round((float) $data['amount'], 2);
-                $pendingSum = (float) Payment::query()
-                    ->where('invoice_id', $invoice->id)
-                    ->where('approval_status', 'pending')
-                    ->sum('amount');
-                $available = round((float) $invoice->balance - $pendingSum, 2);
+                    if (in_array($invoice->status, ['paid', 'void'], true)) {
+                        throw new \RuntimeException('Cannot record payment on a '.$invoice->status.' invoice ('.$invoice->invoice_code.').');
+                    }
 
-                if ($amount > $available) {
-                    throw new \RuntimeException(
-                        'Amount exceeds available balance (including pending requests): '.number_format($available, 2)
-                    );
-                }
+                    if ($patientId === null) {
+                        $patientId = (int) $invoice->patient_id;
+                        $admissionId = (int) $invoice->admission_id;
+                    } elseif ((int) $invoice->patient_id !== $patientId || (int) $invoice->admission_id !== $admissionId) {
+                        throw new \RuntimeException('All selected invoices must belong to the same patient.');
+                    }
 
-                $installmentNo = $data['installment_no'] ?? null;
-                if (! $installmentNo) {
-                    $installmentNo = (int) Payment::query()
+                    $pendingSum = (float) Payment::query()
                         ->where('invoice_id', $invoice->id)
-                        ->whereIn('approval_status', ['pending', 'approved'])
-                        ->count() + 1;
+                        ->where('approval_status', 'pending')
+                        ->sum('amount');
+                    $available = round((float) $invoice->balance - $pendingSum, 2);
+                    if ($available <= 0) {
+                        throw new \RuntimeException(
+                            'No remaining balance for '.$invoice->invoice_code.'.'
+                        );
+                    }
+
+                    $installmentNo = $invoice->installment_no
+                        ?? ((int) Payment::query()
+                            ->where('invoice_id', $invoice->id)
+                            ->whereIn('approval_status', ['pending', 'approved'])
+                            ->count() + 1);
+
+                    $created[] = Payment::query()->create([
+                        'payment_code' => $this->nextCode(),
+                        'invoice_id' => $invoice->id,
+                        'patient_id' => $invoice->patient_id,
+                        'amount' => $available,
+                        'installment_no' => $installmentNo,
+                        'method' => $data['method'] ?? 'cash',
+                        'paid_at' => $data['paid_at'] ?? now(),
+                        'reference' => $data['reference'] ?? null,
+                        'notes' => $data['notes'] ?? null,
+                        'proof_image_path' => $proofPath,
+                        'approval_status' => 'pending',
+                        'created_by' => $request->user()->id,
+                    ])->load(['patient', 'invoice', 'creator', 'approver']);
                 }
 
-                // Pending request only — invoice paid amount updates after admin approve.
-                return Payment::query()->create([
-                    'payment_code' => $this->nextCode(),
-                    'invoice_id' => $invoice->id,
-                    'patient_id' => $invoice->patient_id,
-                    'amount' => $amount,
-                    'installment_no' => $installmentNo,
-                    'method' => $data['method'] ?? 'cash',
-                    'paid_at' => $data['paid_at'] ?? now(),
-                    'reference' => $data['reference'] ?? null,
-                    'notes' => $data['notes'] ?? null,
-                    'proof_image_path' => $proofPath,
-                    'approval_status' => 'pending',
-                    'created_by' => $request->user()->id,
-                ])->load(['patient', 'invoice', 'creator', 'approver']);
+                return collect($created);
             });
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        Audit::log('payment.request', 'billing', 'payment', $payment->id, "Payment request {$payment->payment_code}");
+        $first = $payments->first();
+        $totalAmount = round((float) $payments->sum('amount'), 2);
+        $count = $payments->count();
 
-        $patientLabel = $payment->patient?->full_name ?: 'Patient';
-        $code = $payment->patient?->patient_code ?: '';
+        Audit::log(
+            'payment.request',
+            'billing',
+            'payment',
+            $first->id,
+            $count > 1
+                ? "Payment batch ({$count}) for {$first->payment_code}"
+                : "Payment request {$first->payment_code}"
+        );
+
+        $patientLabel = $first->patient?->full_name ?: 'Patient';
+        $body = $count > 1
+            ? trim($patientLabel).' · '.$count.' invoices · PKR '.number_format($totalAmount, 0)
+            : trim($patientLabel).' · PKR '.number_format($totalAmount, 0).' · '.$first->method;
 
         app(AppNotifier::class)->notifyRoleSlugs(
             ['admin'],
             'payment.pending',
-            'Fee approval · '.$payment->payment_code,
-            trim($code.' '.$patientLabel).' · PKR '.number_format((float) $payment->amount, 0).' · '.$payment->method
-                .' · installment #'.$payment->installment_no,
-            '/app/payments/'.$payment->id,
+            'Payment approval',
+            $body,
+            '/app/payments/'.$first->id,
             [
-                'payment_id' => $payment->id,
-                'patient_id' => $payment->patient_id,
-                'amount' => $payment->amount,
+                'payment_id' => $first->id,
+                'payment_ids' => $payments->pluck('id')->values()->all(),
+                'patient_id' => $first->patient_id,
+                'amount' => $totalAmount,
             ],
             $request->user()->id,
         );
 
         return response()->json([
-            'message' => 'Payment request sent for admin approval',
-            'data' => $this->payload($payment),
+            'message' => $count > 1
+                ? "{$count} payment requests sent for admin approval"
+                : 'Payment request sent for admin approval',
+            'data' => $this->payload($first),
+            'data_list' => $payments->map(fn (Payment $p) => $this->payload($p))->values(),
         ], 201);
     }
 
@@ -204,9 +292,9 @@ class PaymentController extends Controller
             app(AppNotifier::class)->notifyUsers(
                 [$payment->created_by],
                 'payment.approved',
-                'Payment approved · '.$payment->payment_code,
-                'PKR '.number_format((float) $payment->amount, 0).' marked paid on invoice '.$payment->invoice?->invoice_code,
-                '/app/billing',
+                'Payment approved',
+                'PKR '.number_format((float) $payment->amount, 0).' · '.$payment->invoice?->invoice_code,
+                '/app/billing?tab=fees&fees=cleared',
                 ['payment_id' => $payment->id],
                 $request->user()->id,
             );
@@ -241,9 +329,9 @@ class PaymentController extends Controller
             app(AppNotifier::class)->notifyUsers(
                 [$payment->created_by],
                 'payment.rejected',
-                'Payment rejected · '.$payment->payment_code,
-                $data['reason'] ?: 'Admin rejected this fee request.',
-                '/app/billing',
+                'Payment rejected',
+                $data['reason'] ?: ('PKR '.number_format((float) $payment->amount, 0).' · rejected'),
+                '/app/billing?tab=fees&fees=pending',
                 ['payment_id' => $payment->id],
                 $request->user()->id,
             );
@@ -255,9 +343,9 @@ class PaymentController extends Controller
         ]);
     }
 
-    private function payload(Payment $payment): array
+    private function payload(Payment $payment, bool $withProgress = false): array
     {
-        return [
+        $data = [
             'id' => $payment->id,
             'payment_code' => $payment->payment_code,
             'amount' => $payment->amount,
@@ -287,24 +375,85 @@ class PaymentController extends Controller
                 'balance' => $payment->invoice?->balance,
                 'paid_amount' => $payment->invoice?->paid_amount,
                 'total_amount' => $payment->invoice?->total_amount,
+                'installment_no' => $payment->invoice?->installment_no,
+                'admission_id' => $payment->invoice?->admission_id,
             ],
         ];
+
+        if ($withProgress && $payment->invoice?->admission_id) {
+            $siblings = Invoice::query()
+                ->where('admission_id', $payment->invoice->admission_id)
+                ->where('status', '!=', 'void')
+                ->withExists([
+                    'payments as has_pending_payment' => fn ($q) => $q->where('approval_status', 'pending'),
+                ])
+                ->orderBy('installment_no')
+                ->orderBy('id')
+                ->get(['id', 'invoice_code', 'installment_no', 'total_amount', 'paid_amount', 'balance', 'status']);
+
+            $data['invoice_progress'] = $siblings->map(function (Invoice $inv) {
+                $status = 'due';
+                $label = 'Due';
+                if ($inv->status === 'paid' || (float) $inv->balance <= 0) {
+                    $status = 'paid';
+                    $label = 'Paid';
+                } elseif ((bool) ($inv->has_pending_payment ?? false)) {
+                    $status = 'awaiting_approval';
+                    $label = 'Awaiting approval';
+                }
+
+                return [
+                    'id' => $inv->id,
+                    'invoice_code' => $inv->invoice_code,
+                    'installment_no' => (int) ($inv->installment_no ?: 1),
+                    'total_amount' => $inv->total_amount,
+                    'balance' => $inv->balance,
+                    'collection_status' => $status,
+                    'collection_status_label' => $label,
+                ];
+            })->values();
+        }
+
+        if ($withProgress && $payment->proof_image_path) {
+            $batch = Payment::query()
+                ->with('invoice:id,invoice_code,installment_no')
+                ->where('proof_image_path', $payment->proof_image_path)
+                ->where('patient_id', $payment->patient_id)
+                ->orderBy('id')
+                ->get();
+
+            if ($batch->count() > 1) {
+                $data['batch_payments'] = $batch->map(fn (Payment $p) => [
+                    'id' => $p->id,
+                    'payment_code' => $p->payment_code,
+                    'amount' => $p->amount,
+                    'approval_status' => $p->approval_status,
+                    'invoice_code' => $p->invoice?->invoice_code,
+                    'installment_no' => $p->installment_no ?: $p->invoice?->installment_no,
+                ])->values();
+            }
+        }
+
+        return $data;
     }
 
     private function nextCode(): string
     {
         $year = now()->format('Y');
         $prefix = "PAY-{$year}-";
-        $latest = Payment::query()
-            ->where('payment_code', 'like', $prefix.'%')
-            ->orderByDesc('id')
-            ->value('payment_code');
 
-        $next = 1;
-        if ($latest && preg_match('/(\d+)$/', $latest, $m)) {
-            $next = ((int) $m[1]) + 1;
+        // Use max numeric suffix (ignore seed codes like PAY-2026-X001).
+        $max = 0;
+        $codes = Payment::query()
+            ->where('payment_code', 'like', $prefix.'%')
+            ->pluck('payment_code');
+
+        foreach ($codes as $code) {
+            if (preg_match('/^PAY-\d+-(\d+)$/', (string) $code, $m)) {
+                $max = max($max, (int) $m[1]);
+            }
         }
 
-        return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
+        return $prefix.str_pad((string) ($max + 1), 4, '0', STR_PAD_LEFT);
     }
 }

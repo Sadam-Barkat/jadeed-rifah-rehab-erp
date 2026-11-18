@@ -81,8 +81,8 @@ class DischargeController extends Controller
         app(AppNotifier::class)->notifyRoleSlugs(
             ['admin'],
             'discharge.requested',
-            'Discharge request · '.$admission->patient?->patient_code,
-            ($admission->patient?->full_name ?: 'Patient').' — confirm discharge in Management.',
+            'Discharge request',
+            ($admission->patient?->full_name ?: 'Patient').' · '.$admission->patient?->patient_code,
             '/app/management?tab=patients',
             ['patient_id' => $admission->patient_id, 'admission_id' => $admission->id],
             $request->user()->id,

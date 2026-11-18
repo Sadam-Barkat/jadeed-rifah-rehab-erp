@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
 import DashboardView from '../../components/dashboard/DashboardView'
@@ -7,6 +8,7 @@ import '../pages.css'
 
 const STAFF_SECTIONS = new Set(['pharmacy', 'inventory', 'inventory-petty', 'inventory-bills'])
 const PRINT_SECTIONS = new Set(['pharmacy', 'inventory', 'inventory-petty', 'inventory-bills', 'visitors'])
+const FINANCE_TABS = new Set(['overview', 'petty', 'bills'])
 
 function sectionForTab(section, financeTab) {
   if (section !== 'finance') return section
@@ -16,13 +18,19 @@ function sectionForTab(section, financeTab) {
 }
 
 export default function AdminSectionPage({ section, fallbackTitle }) {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [filter, setFilter] = useState(defaultRange)
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState(null)
   const [staffOptions, setStaffOptions] = useState([])
   const [spentForOptions, setSpentForOptions] = useState([])
   const [billTypeOptions, setBillTypeOptions] = useState([])
-  const [financeTab, setFinanceTab] = useState('overview')
+  const rawFinanceTab = searchParams.get('tab') || 'overview'
+  const financeTab = FINANCE_TABS.has(rawFinanceTab) ? rawFinanceTab : 'overview'
+
+  function setFinanceTab(tab) {
+    setSearchParams(tab === 'overview' ? {} : { tab }, { replace: true })
+  }
 
   const activeSection = sectionForTab(section, financeTab)
   const showStaff = STAFF_SECTIONS.has(activeSection)

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
 import Button from '../../components/ui/Button'
@@ -13,38 +13,70 @@ const emptyForm = {
   package_name: '',
   belongings_notes: '',
   consent_notes: '',
-  clinical_notes: '',
 }
 
 export default function AdmissionPage() {
-  const location = useLocation()
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const focusPatientId = searchParams.get('patient_id') || ''
+  const focused = Boolean(focusPatientId)
+
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [patients, setPatients] = useState([])
   const [beds, setBeds] = useState([])
-  const [admissions, setAdmissions] = useState([])
-  const [form, setForm] = useState(() => ({
+  const [focusPatient, setFocusPatient] = useState(null)
+  const [form, setForm] = useState({
     ...emptyForm,
-    patient_id: location.state?.patientId ? String(location.state.patientId) : '',
-    program_days: location.state?.planDays ? String(location.state.planDays) : '30',
-  }))
-  const backTo = location.state?.backTo
+    patient_id: focusPatientId,
+  })
+
+  const backTo = '/app/management?tab=patients&status=registered'
 
   function setField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
 
+  const selectedPatient = useMemo(() => {
+    if (focusPatient && String(focusPatient.id) === String(form.patient_id)) return focusPatient
+    return patients.find((p) => String(p.id) === String(form.patient_id)) || null
+  }, [patients, focusPatient, form.patient_id])
+
   async function load() {
     setLoading(true)
     try {
-      const [patientRes, bedRes, admissionRes] = await Promise.all([
+      const [patientRes, bedRes] = await Promise.all([
         api('/patients?status=registered&per_page=50'),
         api('/beds/available'),
-        api('/admissions?per_page=20'),
       ])
-      setPatients(patientRes.data || [])
+      const list = patientRes.data || []
+      setPatients(list)
       setBeds(bedRes.data || [])
-      setAdmissions(admissionRes.data || [])
+
+      if (focusPatientId) {
+        let row = list.find((p) => String(p.id) === String(focusPatientId))
+        if (!row) {
+          try {
+            const detail = await api(`/patients/${focusPatientId}`)
+            row = detail.data
+          } catch {
+            row = null
+          }
+        }
+        setFocusPatient(row || null)
+        if (row) {
+          setForm((prev) => ({
+            ...prev,
+            patient_id: String(row.id),
+            program_days: String(row.plan_days || prev.program_days || 30),
+            package_name: row.plan_days ? `${row.plan_days}-Day Program` : prev.package_name,
+          }))
+          if (row.status && row.status !== 'registered') {
+            toast.message('Patient already processed')
+            navigate('/app/management?tab=patients&status=admitted', { replace: true })
+          }
+        }
+      }
     } catch (err) {
       toast.error(err.message || 'Failed to load admission data')
     } finally {
@@ -54,28 +86,27 @@ export default function AdmissionPage() {
 
   useEffect(() => {
     load()
-  }, [])
+  }, [focusPatientId])
 
   async function handleSubmit(e) {
     e.preventDefault()
     setSaving(true)
     try {
+      const days = Number(form.program_days)
       const data = await api('/admissions', {
         method: 'POST',
         body: {
           patient_id: Number(form.patient_id),
           bed_id: Number(form.bed_id),
-          program_days: Number(form.program_days),
-          package_name: form.package_name || null,
+          program_days: days,
+          package_name: form.package_name || `${days}-Day Program`,
           belongings_notes: form.belongings_notes || null,
           consent_notes: form.consent_notes || null,
-          clinical_notes: form.clinical_notes || null,
           activate: true,
         },
       })
       toast.success(`Admission ${data.data.admission_code} created`)
-      setForm(emptyForm)
-      load()
+      navigate('/app/management?tab=patients&status=admitted', { replace: true })
     } catch (err) {
       toast.error(err.message || 'Admission failed')
     } finally {
@@ -90,35 +121,78 @@ export default function AdmissionPage() {
           <p className="eyebrow">Patient Care</p>
           <h2>Patient Admission</h2>
         </div>
-        {backTo ? (
-          <div className="page-actions">
-            <Link className="ui-btn ui-btn-back ui-btn-md" to={backTo}>Back</Link>
-          </div>
-        ) : null}
+        <div className="page-actions">
+          <Link className="ui-btn ui-btn-back ui-btn-md" to={backTo}>
+            Back
+          </Link>
+        </div>
       </div>
 
       {loading ? (
         <SkeletonCards count={2} />
       ) : (
         <>
+          {selectedPatient ? (
+            <section className="panel">
+              <div className="panel-head">
+                <h3>Patient</h3>
+                <span className="badge">{String(selectedPatient.status || 'registered').replaceAll('_', ' ')}</span>
+              </div>
+              <div className="detail-grid">
+                <div>
+                  <span>Code</span>
+                  <strong>{selectedPatient.patient_code || '—'}</strong>
+                </div>
+                <div>
+                  <span>Name</span>
+                  <strong>{selectedPatient.full_name || '—'}</strong>
+                </div>
+                <div>
+                  <span>Phone</span>
+                  <strong>{selectedPatient.phone || '—'}</strong>
+                </div>
+                <div>
+                  <span>Plan</span>
+                  <strong>{selectedPatient.plan_days ? `${selectedPatient.plan_days} days` : '—'}</strong>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
           <form className="panel form-grid" onSubmit={handleSubmit}>
-            <div className="ui-field">
-              <label htmlFor="patient_id">Registered patient</label>
-              <select
-                id="patient_id"
-                className="ui-select"
-                required
-                value={form.patient_id}
-                onChange={(e) => setField('patient_id', e.target.value)}
-              >
-                <option value="">Select patient</option>
-                {patients.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.patient_code} · {p.full_name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {!focused ? (
+              <div className="ui-field">
+                <label htmlFor="patient_id">Registered patient</label>
+                <select
+                  id="patient_id"
+                  className="ui-select"
+                  required
+                  value={form.patient_id}
+                  onChange={(e) => {
+                    const id = e.target.value
+                    setField('patient_id', id)
+                    const row = patients.find((p) => String(p.id) === String(id))
+                    if (row?.plan_days) {
+                      setForm((prev) => ({
+                        ...prev,
+                        patient_id: id,
+                        program_days: String(row.plan_days),
+                        package_name: `${row.plan_days}-Day Program`,
+                      }))
+                    }
+                  }}
+                >
+                  <option value="">Select patient</option>
+                  {patients.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.patient_code} · {p.full_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <input type="hidden" name="patient_id" value={form.patient_id} />
+            )}
 
             <div className="ui-field">
               <label htmlFor="bed_id">Available bed</label>
@@ -144,22 +218,19 @@ export default function AdmissionPage() {
                 id="program_days"
                 className="ui-select"
                 value={form.program_days}
-                onChange={(e) => setField('program_days', e.target.value)}
+                onChange={(e) => {
+                  const days = e.target.value
+                  setForm((prev) => ({
+                    ...prev,
+                    program_days: days,
+                    package_name: `${days}-Day Program`,
+                  }))
+                }}
               >
                 <option value="30">30 Days</option>
                 <option value="60">60 Days</option>
                 <option value="90">90 Days</option>
               </select>
-            </div>
-
-            <div className="ui-field">
-              <label htmlFor="package_name">Package name</label>
-              <input
-                id="package_name"
-                className="ui-input"
-                value={form.package_name}
-                onChange={(e) => setField('package_name', e.target.value)}
-              />
             </div>
 
             <div className="ui-field full">
@@ -183,53 +254,14 @@ export default function AdmissionPage() {
             </div>
 
             <div className="form-actions full">
-              <Button type="submit" disabled={saving || !patients.length || !beds.length}>
+              <Button
+                type="submit"
+                disabled={saving || !form.patient_id || !beds.length}
+              >
                 {saving ? 'Saving...' : 'Admit patient'}
               </Button>
             </div>
           </form>
-
-          <section className="panel">
-            <div className="panel-head">
-              <h3>Recent admissions</h3>
-            </div>
-            {admissions.length === 0 ? (
-              <p className="panel-copy">No admissions yet.</p>
-            ) : (
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Code</th>
-                      <th>Patient</th>
-                      <th>Bed</th>
-                      <th>Program</th>
-                      <th>Status</th>
-                      <th>Admitted</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {admissions.map((a) => (
-                      <tr key={a.id}>
-                        <td>{a.admission_code}</td>
-                        <td>
-                          {a.patient?.patient_code} · {a.patient?.full_name}
-                        </td>
-                        <td>
-                          {a.bed?.bed_code} · {a.bed?.room_name}
-                        </td>
-                        <td>{a.program_days} days</td>
-                        <td>
-                          <span className="badge">{a.status}</span>
-                        </td>
-                        <td>{a.admitted_at}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
         </>
       )}
     </div>

@@ -13,7 +13,14 @@ export default function ManagementPage() {
   const tab = searchParams.get('tab') === 'patients' ? 'patients' : 'staff'
 
   function setTab(next) {
-    setSearchParams(next === 'patients' ? { tab: 'patients' } : {}, { replace: true })
+    if (next === 'patients') {
+      const nextParams = { tab: 'patients' }
+      const status = searchParams.get('status')
+      if (status) nextParams.status = status
+      setSearchParams(nextParams, { replace: true })
+      return
+    }
+    setSearchParams({}, { replace: true })
   }
 
   return (

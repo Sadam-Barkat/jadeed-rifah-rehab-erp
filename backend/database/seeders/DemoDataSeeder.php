@@ -90,6 +90,48 @@ class DemoDataSeeder extends Seeder
             }
         }
 
+        // Fee flow testers: admitted, no invoice yet (so Finance "Need invoice" has rows).
+        $pkg60 = FeePackage::query()->where('program_days', 60)->where('status', 'active')->orderBy('id')->first() ?: $package;
+        $pkg90 = FeePackage::query()->where('program_days', 90)->where('status', 'active')->orderBy('id')->first() ?: $package;
+        $freeBeds = Bed::query()->where('status', 'available')->orderBy('id')->get();
+        $feeTests = [
+            ['patient_code' => 'PAT-FEE-01', 'admission_code' => 'ADM-FEE-01', 'first' => 'Ahmad', 'last' => 'FeeTest', 'days' => 60, 'pkg' => $pkg60],
+            ['patient_code' => 'PAT-FEE-02', 'admission_code' => 'ADM-FEE-02', 'first' => 'Kamran', 'last' => 'FeeTest', 'days' => 90, 'pkg' => $pkg90],
+        ];
+        foreach ($feeTests as $i => $row) {
+            $bed = $freeBeds[$i] ?? null;
+            $patient = Patient::query()->updateOrCreate(
+                ['patient_code' => $row['patient_code']],
+                [
+                    'first_name' => $row['first'],
+                    'last_name' => $row['last'],
+                    'father_name' => 'Father '.$row['last'],
+                    'cnic' => '42101'.str_pad((string) (9000001 + $i), 7, '0', STR_PAD_LEFT),
+                    'gender' => 'male',
+                    'phone' => '0311'.str_pad((string) (9000001 + $i), 7, '0', STR_PAD_LEFT),
+                    'city' => 'Lahore',
+                    'plan_days' => $row['days'],
+                    'status' => 'admitted',
+                    'created_by' => $reception->id,
+                ]
+            );
+            if ($bed) {
+                $bed->update(['status' => 'occupied']);
+            }
+            Admission::query()->updateOrCreate(
+                ['admission_code' => $row['admission_code']],
+                [
+                    'patient_id' => $patient->id,
+                    'bed_id' => $bed?->id,
+                    'admitted_at' => now()->subDays(2 - $i),
+                    'program_days' => $row['days'],
+                    'package_name' => $row['pkg']->name,
+                    'status' => 'active',
+                    'created_by' => $reception->id,
+                ]
+            );
+        }
+
         foreach ($admissions->take(10) as $i => $admission) {
             $n = $i + 1;
             $code = 'INV-'.now()->format('Y').'-'.str_pad((string) $n, 4, '0', STR_PAD_LEFT);

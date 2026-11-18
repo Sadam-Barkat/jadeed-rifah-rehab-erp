@@ -35,30 +35,61 @@ export default function PaymentApprovalPage() {
     load()
   }, [id])
 
+  function pendingBatchIds(current = payment) {
+    const batch = Array.isArray(current?.batch_payments) ? current.batch_payments : []
+    const ids = batch
+      .filter((row) => row.approval_status === 'pending')
+      .map((row) => Number(row.id))
+    if (ids.length > 0) return ids
+    return current?.approval_status === 'pending' ? [Number(current.id)] : []
+  }
+
   async function approve() {
+    const ids = pendingBatchIds()
+    if (ids.length === 0) return
     setSaving(true)
     try {
-      const data = await api(`/payments/${id}/approve`, { method: 'POST' })
-      toast.success(data.message || 'Approved')
-      setPayment(data.data)
+      let last = null
+      for (const payId of ids) {
+        const data = await api(`/payments/${payId}/approve`, { method: 'POST' })
+        last = data
+      }
+      toast.success(
+        ids.length > 1
+          ? `${ids.length} payments approved`
+          : last?.message || 'Approved'
+      )
+      await load()
     } catch (err) {
       toast.error(err.message || 'Approve failed')
+      await load()
     } finally {
       setSaving(false)
     }
   }
 
   async function reject() {
+    const ids = pendingBatchIds()
+    if (ids.length === 0) return
     setSaving(true)
     try {
-      const data = await api(`/payments/${id}/reject`, {
-        method: 'POST',
-        body: { reason: reason || null },
-      })
-      toast.success(data.message || 'Rejected')
-      setPayment(data.data)
+      let last = null
+      for (const payId of ids) {
+        const data = await api(`/payments/${payId}/reject`, {
+          method: 'POST',
+          body: { reason: reason || null },
+        })
+        last = data
+      }
+      toast.success(
+        ids.length > 1
+          ? `${ids.length} payments rejected`
+          : last?.message || 'Rejected'
+      )
+      await load()
     } catch (err) {
       toast.error(err.message || 'Reject failed')
+      await load()
     } finally {
       setSaving(false)
     }
@@ -77,14 +108,18 @@ export default function PaymentApprovalPage() {
     return (
       <div className="page">
         <p className="panel-copy">Payment not found.</p>
-        <Link className="ui-btn ui-btn-back ui-btn-md" to={isAdmin ? '/app/admin/finance' : '/app/billing?tab=fees'}>
+        <Link className="ui-btn ui-btn-back ui-btn-md" to={isAdmin ? '/app/admin/finance' : '/app/billing?tab=fees&fees=pending'}>
           Back
         </Link>
       </div>
     )
   }
 
-  const pending = payment.approval_status === 'pending'
+  const batch = Array.isArray(payment.batch_payments) ? payment.batch_payments : []
+  const pendingBatch = batch.filter((row) => row.approval_status === 'pending')
+  const pending = payment.approval_status === 'pending' || pendingBatch.length > 0
+  const batchTotal = batch.reduce((s, row) => s + Number(row.amount || 0), 0)
+  const backTo = isAdmin ? '/app/admin/finance' : '/app/billing?tab=fees&fees=pending'
 
   return (
     <div className="page">
@@ -94,9 +129,31 @@ export default function PaymentApprovalPage() {
           <h2>{payment.payment_code}</h2>
         </div>
         <div className="page-actions">
-          <Button type="button" variant="back" onClick={() => navigate(-1)}>Back</Button>
+          <Button type="button" variant="back" onClick={() => navigate(backTo)}>Back</Button>
         </div>
       </div>
+
+      {batch.length > 1 ? (
+        <section className="panel">
+          <div className="panel-head">
+            <h3>Same proof · {batch.length} invoices</h3>
+            <span className="badge">{formatPkr(batchTotal)}</span>
+          </div>
+          <div className="fees-installment-list">
+            {batch.map((row) => (
+              <div key={row.id} className="fees-installment-row">
+                <div>
+                  <strong>
+                    Invoice #{row.installment_no || 1} · {row.invoice_code || row.payment_code}
+                  </strong>
+                  <span>{formatPkr(row.amount)}</span>
+                </div>
+                <span className="badge">{row.approval_status}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="panel">
         <div className="panel-head">
@@ -135,8 +192,8 @@ export default function PaymentApprovalPage() {
             <strong>{formatPkr(payment.amount)}</strong>
           </div>
           <div>
-            <span>Installment</span>
-            <strong>#{payment.installment_no || '—'}</strong>
+            <span>Invoice no.</span>
+            <strong>#{payment.installment_no || payment.invoice?.installment_no || '—'}</strong>
           </div>
           <div>
             <span>Method</span>
@@ -145,10 +202,6 @@ export default function PaymentApprovalPage() {
           <div>
             <span>Collected by</span>
             <strong>{payment.collected_by || '—'}</strong>
-          </div>
-          <div>
-            <span>Reference</span>
-            <strong>{payment.reference || '—'}</strong>
           </div>
           <div>
             <span>Paid at</span>
@@ -168,6 +221,33 @@ export default function PaymentApprovalPage() {
           ) : null}
         </div>
       </section>
+
+      {Array.isArray(payment.invoice_progress) && payment.invoice_progress.length > 0 ? (
+        <section className="panel">
+          <div className="panel-head">
+            <h3>Patient invoices</h3>
+          </div>
+          <div className="fees-installment-list">
+            {payment.invoice_progress.map((inv) => (
+              <div key={inv.id} className="fees-installment-row">
+                <div>
+                  <strong>
+                    Invoice #{inv.installment_no || 1} · {inv.invoice_code}
+                  </strong>
+                  <span>
+                    {inv.collection_status === 'paid'
+                      ? `Paid ${formatPkr(inv.total_amount)}`
+                      : `Balance ${formatPkr(inv.balance)}`}
+                  </span>
+                </div>
+                <span className={`fee-status fee-status-${inv.collection_status || 'due'}`}>
+                  {inv.collection_status_label || 'Due'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="panel">
         <div className="panel-head">
@@ -199,10 +279,14 @@ export default function PaymentApprovalPage() {
           </div>
           <div className="form-actions full">
             <Button type="button" disabled={saving} onClick={approve}>
-              {saving ? 'Saving…' : 'Approve & mark paid'}
+              {saving
+                ? 'Saving…'
+                : pendingBatch.length > 1
+                  ? `Approve all (${pendingBatch.length})`
+                  : 'Approve & mark paid'}
             </Button>
             <Button type="button" variant="danger" disabled={saving} onClick={reject}>
-              Reject
+              {pendingBatch.length > 1 ? `Reject all (${pendingBatch.length})` : 'Reject'}
             </Button>
           </div>
         </section>

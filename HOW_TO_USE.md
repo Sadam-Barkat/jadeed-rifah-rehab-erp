@@ -40,6 +40,8 @@ Extra staff can still be created by Admin in Management (no self-signup / forgot
 4. Doctor — medical care  
 5. Nurse — nursing notes  
 6. Finance — top navbar (no sidebar): Fees & payments · Petty expenses · Facility bills  
+   Fees & payments has inner tabs (Create Invoice / Awaiting plan / Payment pending / Cleared).  
+   Admin finance: Overview · Petty · Facility bills. Plan/payment approve opens from notification → detail page.  
    All non-admin roles use the same top navbar (logo + modules + bell + profile). Admin keeps sidebar.  
 7. Pharmacist — medicines only (stock in + dispense to patients)  
 8. Inventory Manager — non-medicine stock (kitchen, beds, cameras, equipment, etc.) + kitchen  
@@ -57,13 +59,14 @@ Management tab: add/update/delete staff and manage patients.
 
 - Topbar **bell** shows unread count (not on sidebar tabs).
 - Open panel → all notifications (old + new). **Mark all read** available.
-- Click a notification → marks read + opens linked page. Count drops only after read/click.
+- Time shows real datetime (e.g. 18 Nov, 02:57 pm).
+- Closed envelope → mark as read only. Open envelope after read. Row click → open linked page + mark read.
 
 ## Agreed patient / fee flow (building phase by phase)
 
 1. **Receptionist** fills registration (details + CNIC front/back + plan 30/60/90). Submits as **request** (not auto-admit).
 2. **Admin** reviews via Management / bell → Admit (bed) or hold/reject. Admin add form can choose Register / Admit / Discharge + plan.
-3. New patient also notifies **Finance** (bell) → collect fee; proof required (online screenshot or cash image) so Admin can see payment received.
+3. Admin admit notification opens **Admission** page (basic info). After admit → **Admitted** list. Finance is notified on admit → Create Invoice shows the patient.
 4. **Doctor** requests discharge → Admin confirms → Discharged.
 5. Management patient stages (queues, not alert badges on tabs): Requests · Admitted · Discharge requests · Discharged.
 
@@ -73,11 +76,14 @@ Management tab: add/update/delete staff and manage patients.
 - Admin action on register: Register request **or** Register+Admit (+ bed)
 - Management patient stages: Requests / Admitted / Discharge requests / Discharged
 - Doctor **Request discharge** → Admin confirms
-- Finance creates invoice (with installment plan, e.g. 3 or 5 parts) → each installment payment + proof → **pending approval** → Admin checks screenshot → **Approve** (invoice stays unpaid until last installment) or Reject
+- Fees & payments inner tabs: Create Invoice → Awaiting plan → Payment pending (patient cards + modal pay) → Cleared (fully paid patients, cards + pagination)
+- Invoice status badges: Due · Awaiting approval · Paid (Finance pending modal + Admin payment page progress)
+- Payment proof goes to Admin for approve; no separate Collection tab for Finance
+- Default: **1 invoice** (30/60/90) — no Admin plan approval
+- Installment request only when patient asks: 60→max 2, 90→max 2–3 (even monthly split; Finance can edit amounts) → Admin notification → plan page Approve/Reject → invoices created
+- Each payment + proof → Admin notification → payment page Accept/Reject → Cleared when fully paid
 - No “partial” invoice status — unpaid until fully paid, then paid
 - Finance dashboard shows approved collection + pending requests
-
-**Still later:** invoice auto-create on register; richer installment schedule planner.
 
 ## Daily flow (current lean)
 

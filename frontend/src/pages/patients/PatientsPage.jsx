@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
 import Pagination from '../../components/ui/Pagination'
@@ -13,17 +13,36 @@ const STATUS_FILTERS = [
   { id: 'discharge_requested', label: 'Discharge requests' },
   { id: 'discharged', label: 'Discharged' },
 ]
+const VALID_STATUS = new Set(STATUS_FILTERS.map((t) => t.id))
 
 const PER_PAGE = 12
 
 export default function PatientsPage({ embedded = false }) {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const statusFromUrl = VALID_STATUS.has(searchParams.get('status') || '')
+    ? searchParams.get('status') || ''
+    : ''
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [debounced, setDebounced] = useState('')
-  const [status, setStatus] = useState('')
+  const [status, setStatus] = useState(statusFromUrl)
   const [rows, setRows] = useState([])
   const [meta, setMeta] = useState({ current_page: 1, last_page: 1, total: 0 })
   const [page, setPage] = useState(1)
+
+  useEffect(() => {
+    setStatus(statusFromUrl)
+  }, [statusFromUrl])
+
+  function changeStatus(next) {
+    setStatus(next)
+    if (!embedded) return
+    const params = new URLSearchParams(searchParams)
+    params.set('tab', 'patients')
+    if (next) params.set('status', next)
+    else params.delete('status')
+    setSearchParams(params, { replace: true })
+  }
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 350)
@@ -90,7 +109,7 @@ export default function PatientsPage({ embedded = false }) {
               role="tab"
               aria-selected={status === tab.id}
               className={`filter-tab ${status === tab.id ? 'is-active' : ''}`}
-              onClick={() => setStatus(tab.id)}
+              onClick={() => changeStatus(tab.id)}
             >
               {tab.label}
             </button>

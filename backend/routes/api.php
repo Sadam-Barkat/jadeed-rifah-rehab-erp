@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\DoctorController;
 use App\Http\Controllers\Api\DoctorRoundController;
 use App\Http\Controllers\Api\FacilityBillController;
 use App\Http\Controllers\Api\FeePackageController;
+use App\Http\Controllers\Api\FeePlanController;
 use App\Http\Controllers\Api\InventoryItemController;
 use App\Http\Controllers\Api\InventoryMovementController;
 use App\Http\Controllers\Api\InvoiceController;
@@ -133,15 +134,21 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('module:billing,accounts')->group(function () {
         Route::get('/fee-packages', [FeePackageController::class, 'index']);
         Route::post('/fee-packages', [FeePackageController::class, 'store']);
+        Route::get('/invoices/needing', [InvoiceController::class, 'needingInvoice']);
         Route::get('/invoices', [InvoiceController::class, 'index']);
         Route::post('/invoices', [InvoiceController::class, 'store']);
         Route::get('/invoices/{invoice}', [InvoiceController::class, 'show']);
+        Route::get('/fee-plans', [FeePlanController::class, 'index']);
+        Route::get('/fee-plans/{feePlan}', [FeePlanController::class, 'show']);
+        Route::post('/fee-plans', [FeePlanController::class, 'store']);
         Route::get('/payments', [PaymentController::class, 'index']);
         Route::post('/payments', [PaymentController::class, 'store']);
         Route::get('/payments/{payment}', [PaymentController::class, 'show']);
     });
 
     Route::middleware('admin')->group(function () {
+        Route::post('/fee-plans/{feePlan}/approve', [FeePlanController::class, 'approve']);
+        Route::post('/fee-plans/{feePlan}/reject', [FeePlanController::class, 'reject']);
         Route::post('/payments/{payment}/approve', [PaymentController::class, 'approve']);
         Route::post('/payments/{payment}/reject', [PaymentController::class, 'reject']);
     });

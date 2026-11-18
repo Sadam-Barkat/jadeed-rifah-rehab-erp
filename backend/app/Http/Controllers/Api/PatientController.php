@@ -164,23 +164,25 @@ class PatientController extends Controller
         $notifier = app(AppNotifier::class);
         $meta = ['patient_id' => $patient->id, 'patient_code' => $patient->patient_code];
 
-        $notifier->notifyRoleSlugs(
-            ['finance'],
-            'patient.registered',
-            "New patient {$patient->patient_code}",
-            $patient->full_name.' · plan '.$patient->plan_days.' days — fee collection pending.',
-            '/app/billing',
-            $meta,
-            $request->user()->id,
-        );
-
         if ($patient->status === 'registered') {
             $notifier->notifyRoleSlugs(
                 ['admin'],
                 'patient.registered',
-                "Registration request {$patient->patient_code}",
-                $patient->full_name.' awaiting admit review.',
-                '/app/management?tab=patients',
+                'Admit request',
+                $patient->full_name.' · '.$patient->patient_code,
+                '/app/admission?patient_id='.$patient->id,
+                $meta,
+                $request->user()->id,
+            );
+        }
+
+        if ($patient->status === 'admitted') {
+            $notifier->notifyRoleSlugs(
+                ['finance'],
+                'patient.admitted',
+                'New admission — collect fee',
+                $patient->full_name.' · '.$patient->plan_days.'-day plan',
+                '/app/billing?tab=fees&fees=create',
                 $meta,
                 $request->user()->id,
             );

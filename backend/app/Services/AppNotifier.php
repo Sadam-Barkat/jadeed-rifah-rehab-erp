@@ -8,6 +8,32 @@ use Illuminate\Support\Collection;
 
 class AppNotifier
 {
+    /** @var array<string, string> */
+    private const DEPT_LABELS = [
+        'admin' => 'Admin',
+        'owner' => 'Admin',
+        'finance' => 'Finance',
+        'reception' => 'Reception',
+        'receptionist' => 'Reception',
+        'doctor' => 'Doctor',
+        'nurse' => 'Nursing',
+        'nursing' => 'Nursing',
+        'gate' => 'Gate',
+        'gatekeeper' => 'Gate',
+        'pharmacist' => 'Pharmacy',
+        'pharmacy' => 'Pharmacy',
+        'inventory' => 'Inventory',
+        'inventory-manager' => 'Inventory',
+        'accounts' => 'Accounts',
+    ];
+
+    public static function departmentLabel(?string $roleSlug): string
+    {
+        $slug = strtolower(trim((string) $roleSlug));
+
+        return self::DEPT_LABELS[$slug] ?? ($slug !== '' ? ucfirst($slug) : 'System');
+    }
+
     /**
      * @param  array<int>|Collection<int, int>|null  $userIds
      */
@@ -30,6 +56,14 @@ class AppNotifier
             return 0;
         }
 
+        $department = 'System';
+        if ($createdBy) {
+            $creator = User::query()->with('role:id,slug,name')->find($createdBy);
+            $department = self::departmentLabel($creator?->role?->slug);
+        }
+
+        $meta = array_merge($meta ?? [], ['department' => $department]);
+
         $now = now();
         $rows = $ids->map(fn (int $id) => [
             'user_id' => $id,
@@ -37,7 +71,7 @@ class AppNotifier
             'title' => $title,
             'body' => $body,
             'link' => $link,
-            'meta' => $meta ? json_encode($meta) : null,
+            'meta' => json_encode($meta),
             'read_at' => null,
             'created_by' => $createdBy,
             'created_at' => $now,

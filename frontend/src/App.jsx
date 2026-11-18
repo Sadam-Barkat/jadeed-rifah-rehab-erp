@@ -22,6 +22,7 @@ const NursingPage = lazy(() => import('./pages/nursing/NursingPage'))
 const PharmacyPage = lazy(() => import('./pages/pharmacy/PharmacyPage'))
 const BillingPage = lazy(() => import('./pages/billing/BillingPage'))
 const PaymentApprovalPage = lazy(() => import('./pages/billing/PaymentApprovalPage'))
+const FeePlanApprovalPage = lazy(() => import('./pages/billing/FeePlanApprovalPage'))
 const VisitorsPage = lazy(() => import('./pages/visitors/VisitorsPage'))
 const InventoryPage = lazy(() => import('./pages/inventory/InventoryPage'))
 const KitchenPage = lazy(() => import('./pages/kitchen/KitchenPage'))
@@ -82,6 +83,7 @@ export default function App() {
               <Route path="pharmacy" element={<PharmacyPage />} />
               <Route path="billing" element={<BillingPage />} />
               <Route path="payments/:id" element={<PaymentApprovalPage />} />
+              <Route path="fee-plans/:id" element={<FeePlanApprovalPage />} />
               <Route path="visitors" element={<VisitorsPage />} />
               <Route path="inventory" element={<InventoryPage />} />
               <Route path="kitchen" element={<KitchenPage />} />
