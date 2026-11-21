@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
+import { formatPkPhone, isValidPkPhone } from '../../lib/pk'
+import { useAuth } from '../../context/AuthContext'
 import Button from '../../components/ui/Button'
+import ImageCaptureField from '../../components/ui/ImageCaptureField'
 import Modal from '../../components/ui/Modal'
 import { SkeletonCards } from '../../components/ui/Skeleton'
 import '../pages.css'
@@ -9,22 +13,36 @@ import '../pages.css'
 const emptyForm = {
   known_key: '',
   admission_id: '',
+  patient_id: '',
   visitor_name: '',
   party_size: '1',
   cnic: '',
   phone: '',
 }
 
+const VALID_TABS = new Set(['attendance', 'visitors'])
+
 function digitsOnly(value) {
   return String(value || '').replace(/\D/g, '')
 }
 
+function patientOptionLabel(patient) {
+  return `${patient.full_name || patient.patient_code} · ${patient.patient_code}`
+}
+
 export default function VisitorsPage() {
+  const { user } = useAuth()
+  const isGate = user?.role_slug === 'gatekeeper'
+  const [searchParams, setSearchParams] = useSearchParams()
+  const rawTab = searchParams.get('tab') || 'attendance'
+  const tab = VALID_TABS.has(rawTab) ? rawTab : 'attendance'
+
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [savingAtt, setSavingAtt] = useState(false)
   const [checkingOut, setCheckingOut] = useState(false)
   const [admissions, setAdmissions] = useState([])
+  const [patients, setPatients] = useState([])
   const [directory, setDirectory] = useState([])
   const [visits, setVisits] = useState([])
   const [present, setPresent] = useState([])
@@ -34,7 +52,13 @@ export default function VisitorsPage() {
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [patientSearch, setPatientSearch] = useState('')
+  const [patientListOpen, setPatientListOpen] = useState(false)
+  const [activePatientIndex, setActivePatientIndex] = useState(-1)
   const [checkoutTarget, setCheckoutTarget] = useState(null)
+
+  function setTab(id) {
+    setSearchParams(id === 'attendance' ? { tab: 'attendance' } : { tab: id }, { replace: true })
+  }
 
   function setField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -50,6 +74,22 @@ export default function VisitorsPage() {
     setDirectory(res.data || [])
   }
 
+  async function loadPatients() {
+    const first = await api('/visitor-patients?per_page=100')
+    const lastPage = Number(first.meta?.last_page || 1)
+    const remaining = await Promise.all(
+      Array.from({ length: Math.max(0, lastPage - 1) }, (_, index) =>
+        api(`/visitor-patients?per_page=100&page=${index + 2}`)
+      )
+    )
+    setPatients([...(first.data || []), ...remaining.flatMap((page) => page.data || [])])
+  }
+
+  async function loadAdmissions() {
+    const response = await api('/admissions?status=active&per_page=100')
+    setAdmissions(response.data || [])
+  }
+
   async function loadVisits(q = debouncedSearch) {
     const params = new URLSearchParams({ per_page: '50' })
     if (q) params.set('search', q)
@@ -60,15 +100,17 @@ export default function VisitorsPage() {
   async function load() {
     setLoading(true)
     try {
-      const [admRes] = await Promise.all([
-        api('/admissions?status=active&per_page=100'),
-        loadVisits(debouncedSearch),
-        loadPresent(),
-        loadDirectory(),
-      ])
-      setAdmissions(admRes.data || [])
+      if (tab === 'attendance') {
+        await loadPresent()
+      } else {
+        await Promise.all([
+          isGate ? loadPatients() : loadAdmissions(),
+          loadVisits(debouncedSearch),
+          loadDirectory(),
+        ])
+      }
     } catch (err) {
-      toast.error(err.message || 'Failed to load visitors')
+      toast.error(err.message || 'Failed to load')
     } finally {
       setLoading(false)
     }
@@ -76,7 +118,7 @@ export default function VisitorsPage() {
 
   useEffect(() => {
     load()
-  }, [])
+  }, [tab, isGate])
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 350)
@@ -84,20 +126,38 @@ export default function VisitorsPage() {
   }, [search])
 
   useEffect(() => {
-    if (loading) return
+    if (loading || tab !== 'visitors') return
     loadVisits(debouncedSearch).catch((err) => toast.error(err.message || 'Search failed'))
   }, [debouncedSearch])
+
+  const filteredPatients = useMemo(() => {
+    const q = patientSearch.trim().toLowerCase()
+    const selected = patients.find((patient) => String(patient.id) === form.patient_id)
+    if (!q || (selected && patientSearch === patientOptionLabel(selected))) return patients
+    return patients.filter((patient) => {
+      const name = (patient.full_name || '').toLowerCase()
+      const code = (patient.patient_code || '').toLowerCase()
+      return name.includes(q) || code.includes(q)
+    })
+  }, [patients, patientSearch, form.patient_id])
 
   const filteredAdmissions = useMemo(() => {
     const q = patientSearch.trim().toLowerCase()
     if (!q) return admissions
-    return admissions.filter((a) => {
-      const name = (a.patient?.full_name || '').toLowerCase()
-      const code = (a.admission_code || '').toLowerCase()
-      const pcode = (a.patient?.patient_code || '').toLowerCase()
-      return name.includes(q) || code.includes(q) || pcode.includes(q)
+    return admissions.filter((admission) => {
+      const name = (admission.patient?.full_name || '').toLowerCase()
+      const admissionCode = (admission.admission_code || '').toLowerCase()
+      const patientCode = (admission.patient?.patient_code || '').toLowerCase()
+      return name.includes(q) || admissionCode.includes(q) || patientCode.includes(q)
     })
   }, [admissions, patientSearch])
+
+  function choosePatient(patient) {
+    setField('patient_id', patient ? String(patient.id) : '')
+    setPatientSearch(patient ? patientOptionLabel(patient) : '')
+    setPatientListOpen(false)
+    setActivePatientIndex(-1)
+  }
 
   const sortedDirectory = useMemo(
     () =>
@@ -111,10 +171,7 @@ export default function VisitorsPage() {
 
   function applyKnownVisitor(key) {
     if (!key) {
-      setForm((prev) => ({
-        ...prev,
-        known_key: '',
-      }))
+      setForm((prev) => ({ ...prev, known_key: '' }))
       return
     }
     const row = directory.find((d) => d.cnic_key === key)
@@ -170,8 +227,6 @@ export default function VisitorsPage() {
       toast.success(data.message || 'Attendance marked')
       setAttCode('')
       setAttPhoto(null)
-      const photoInput = document.getElementById('staff_att_photo')
-      if (photoInput) photoInput.value = ''
       await loadPresent()
     } catch (err) {
       toast.error(err.message || 'Attendance failed')
@@ -186,6 +241,10 @@ export default function VisitorsPage() {
       toast.error('Name and CNIC are required')
       return
     }
+    if (form.phone.trim() && !isValidPkPhone(form.phone)) {
+      toast.error('Enter a valid phone (11 digits)')
+      return
+    }
     setSaving(true)
     try {
       const body = {
@@ -194,7 +253,8 @@ export default function VisitorsPage() {
         cnic: form.cnic.trim(),
         phone: form.phone.trim() || null,
       }
-      if (form.admission_id) body.admission_id = Number(form.admission_id)
+      if (isGate && form.patient_id) body.patient_id = Number(form.patient_id)
+      if (!isGate && form.admission_id) body.admission_id = Number(form.admission_id)
 
       const data = await api('/visitor-logs', {
         method: 'POST',
@@ -229,27 +289,43 @@ export default function VisitorsPage() {
   }
 
   return (
-    <div className="page print-page">
-      <div className="page-header no-print">
-        <div>
-          <p className="eyebrow">Gate</p>
-          <h2>Gate Visitors</h2>
-        </div>
-        <div className="page-actions">
-          <Button type="button" variant="secondary" onClick={() => window.print()} disabled={loading}>
-            Print
-          </Button>
-        </div>
-      </div>
+    <div className={`page${isGate ? ' finance-page' : ''}`}>
+      {!isGate ? (
+        <>
+          <div className="page-header no-print">
+            <div>
+              <p className="eyebrow">Gate</p>
+              <h2>Gate desk</h2>
+            </div>
+          </div>
+          <div className="page-tabs no-print" role="tablist" aria-label="Gate tabs">
+            <button
+              type="button"
+              role="tab"
+              className={`page-tab ${tab === 'attendance' ? 'is-active' : ''}`}
+              aria-selected={tab === 'attendance'}
+              onClick={() => setTab('attendance')}
+            >
+              Staff Attendance
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className={`page-tab ${tab === 'visitors' ? 'is-active' : ''}`}
+              aria-selected={tab === 'visitors'}
+              onClick={() => setTab('visitors')}
+            >
+              Visitors
+            </button>
+          </div>
+        </>
+      ) : null}
 
       {loading ? (
         <SkeletonCards count={3} />
-      ) : (
+      ) : tab === 'attendance' ? (
         <>
-          <form className="panel form-grid no-print" onSubmit={handleStaffCheckIn}>
-            <div className="panel-head full">
-              <h3>Staff attendance</h3>
-            </div>
+          <form className="panel form-grid" onSubmit={handleStaffCheckIn}>
             <div className="ui-field">
               <label htmlFor="staff_att_code">Attendance code</label>
               <input
@@ -262,18 +338,16 @@ export default function VisitorsPage() {
                 onChange={(e) => setAttCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
               />
             </div>
-            <div className="ui-field">
-              <label htmlFor="staff_att_photo">Staff photo</label>
-              <input
-                id="staff_att_photo"
-                className="ui-input"
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                capture="user"
-                required
-                onChange={(e) => setAttPhoto(e.target.files?.[0] || null)}
-              />
-            </div>
+            <ImageCaptureField
+              id="staff_att_photo"
+              label="Staff photo"
+              value={attPhoto}
+              onChange={setAttPhoto}
+              required
+              cameraOnly
+              facingMode="user"
+              filenamePrefix="staff-attendance"
+            />
             <div className="form-actions full">
               <Button type="submit" disabled={savingAtt}>
                 {savingAtt ? 'Saving…' : 'Mark present'}
@@ -281,7 +355,7 @@ export default function VisitorsPage() {
             </div>
           </form>
 
-          <section className="panel no-print">
+          <section className="panel">
             <div className="panel-head">
               <h3>Present today</h3>
             </div>
@@ -310,11 +384,10 @@ export default function VisitorsPage() {
               </div>
             )}
           </section>
-
-          <form className="panel form-grid no-print" onSubmit={handleSubmit}>
-            <div className="panel-head full">
-              <h3>Log visitor</h3>
-            </div>
+        </>
+      ) : (
+        <>
+          <form className="panel form-grid" onSubmit={handleSubmit}>
             <div className="ui-field full">
               <label htmlFor="known_visitor">Known visitor</label>
               <select
@@ -371,36 +444,114 @@ export default function VisitorsPage() {
               <input
                 id="phone"
                 className="ui-input"
+                inputMode="numeric"
+                maxLength={11}
                 value={form.phone}
-                onChange={(e) => setField('phone', e.target.value)}
+                onChange={(e) => setField('phone', formatPkPhone(e.target.value))}
               />
             </div>
-            <div className="ui-field">
-              <label htmlFor="patient_search">Find patient</label>
-              <input
-                id="patient_search"
-                className="ui-input"
-                value={patientSearch}
-                onChange={(e) => setPatientSearch(e.target.value)}
-                placeholder="Search"
-              />
-            </div>
-            <div className="ui-field">
-              <label htmlFor="admission_id">Patient</label>
-              <select
-                id="admission_id"
-                className="ui-select"
-                value={form.admission_id}
-                onChange={(e) => setField('admission_id', e.target.value)}
-              >
-                <option value="">None</option>
-                {filteredAdmissions.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.patient?.full_name || a.patient?.patient_code} — {a.admission_code}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {isGate ? (
+              <div className="ui-field visitor-patient-field">
+                <label htmlFor="visitor_patient_search">Find patient</label>
+                <div className={`visitor-patient-select${patientListOpen ? ' is-open' : ''}`}>
+                  <input
+                    id="visitor_patient_search"
+                    className="ui-input"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded={patientListOpen}
+                    aria-controls="visitor-patient-options"
+                    autoComplete="off"
+                    value={patientSearch}
+                    onFocus={() => setPatientListOpen(true)}
+                    onChange={(event) => {
+                      setPatientSearch(event.target.value)
+                      setField('patient_id', '')
+                      setActivePatientIndex(-1)
+                      setPatientListOpen(true)
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'ArrowDown') {
+                        event.preventDefault()
+                        setPatientListOpen(true)
+                        setActivePatientIndex((index) => Math.min(index + 1, filteredPatients.length - 1))
+                      } else if (event.key === 'ArrowUp') {
+                        event.preventDefault()
+                        setActivePatientIndex((index) => Math.max(index - 1, 0))
+                      } else if (event.key === 'Enter' && patientListOpen && activePatientIndex >= 0) {
+                        event.preventDefault()
+                        choosePatient(filteredPatients[activePatientIndex])
+                      } else if (event.key === 'Escape') {
+                        setPatientListOpen(false)
+                      }
+                    }}
+                    onBlur={() => {
+                      window.setTimeout(() => setPatientListOpen(false), 120)
+                    }}
+                    placeholder="Search by patient name or code, or select"
+                  />
+                  {patientListOpen ? (
+                    <div className="visitor-patient-options" id="visitor-patient-options" role="listbox">
+                      <button
+                        type="button"
+                        className="visitor-patient-option"
+                        role="option"
+                        aria-selected={!form.patient_id}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => choosePatient(null)}
+                      >
+                        No patient
+                      </button>
+                      {filteredPatients.map((patient, index) => (
+                        <button
+                          type="button"
+                          key={patient.id}
+                          className={`visitor-patient-option${activePatientIndex === index ? ' is-active' : ''}`}
+                          role="option"
+                          aria-selected={String(patient.id) === form.patient_id}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => choosePatient(patient)}
+                        >
+                          {patientOptionLabel(patient)}
+                        </button>
+                      ))}
+                      {filteredPatients.length === 0 ? (
+                        <p className="visitor-patient-empty">No patients found.</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="ui-field">
+                  <label htmlFor="patient_search">Find patient</label>
+                  <input
+                    id="patient_search"
+                    className="ui-input"
+                    value={patientSearch}
+                    onChange={(event) => setPatientSearch(event.target.value)}
+                    placeholder="Search"
+                  />
+                </div>
+                <div className="ui-field">
+                  <label htmlFor="admission_id">Patient</label>
+                  <select
+                    id="admission_id"
+                    className="ui-select"
+                    value={form.admission_id}
+                    onChange={(event) => setField('admission_id', event.target.value)}
+                  >
+                    <option value="">None</option>
+                    {filteredAdmissions.map((admission) => (
+                      <option key={admission.id} value={admission.id}>
+                        {admission.patient?.full_name || admission.patient?.patient_code} — {admission.admission_code}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
             <div className="form-actions full">
               <Button type="submit" disabled={saving}>
                 {saving ? 'Saving…' : 'Log visitor'}
@@ -408,16 +559,11 @@ export default function VisitorsPage() {
             </div>
           </form>
 
-          <header className="print-dash-head">
-            <p className="print-dash-org">Jadeed Rifah Rehab &amp; Care Center</p>
-            <h2>Visitor log</h2>
-          </header>
-
           <section className="panel">
-            <div className="panel-head">
-              <h3>Visitor log</h3>
+            <div className={`panel-head${isGate ? ' gate-visitor-log-head' : ''}`}>
+              <h3>{isGate ? 'Recent visitor entries' : 'Visitor log'}</h3>
               <input
-                className="ui-input panel-search no-print"
+                className="ui-input panel-search"
                 type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -426,7 +572,9 @@ export default function VisitorsPage() {
               />
             </div>
             {visits.length === 0 ? (
-              <p className="panel-copy">No visitors yet.</p>
+              <p className="panel-copy">
+                {isGate ? 'No visitor entries from the last 24 hours.' : 'No visitors yet.'}
+              </p>
             ) : (
               <div className="scroll-panel">
                 <table className="data-table">
@@ -438,7 +586,7 @@ export default function VisitorsPage() {
                       <th>Visitors</th>
                       <th>Patient</th>
                       <th>Status</th>
-                      <th className="no-print">Action</th>
+                      <th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -452,7 +600,7 @@ export default function VisitorsPage() {
                         <td>
                           <span className="badge">{v.status === 'checked_in' ? 'Inside' : v.status}</span>
                         </td>
-                        <td className="no-print">
+                        <td>
                           {v.status === 'checked_in' ? (
                             <Button type="button" variant="secondary" onClick={() => setCheckoutTarget(v)}>
                               Check out
@@ -472,6 +620,7 @@ export default function VisitorsPage() {
           <Modal
             open={!!checkoutTarget}
             title="Check out visitor"
+            size="sm"
             onClose={() => (!checkingOut ? setCheckoutTarget(null) : null)}
             onConfirm={confirmCheckout}
             confirmLabel={checkingOut ? 'Checking out…' : 'Check out'}

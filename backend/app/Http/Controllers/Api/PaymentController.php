@@ -119,12 +119,13 @@ class PaymentController extends Controller
             'paid_at' => ['nullable', 'date'],
             'reference' => ['nullable', 'string', 'max:150'],
             'notes' => ['nullable', 'string'],
-            'proof_image' => ['required', 'file', 'max:40960', 'mimes:jpg,jpeg,png,webp'],
-        ], [
-            'proof_image.max' => 'Payment proof must be 40 MB or smaller.',
+            'proof_image' => SecureUpload::imageRules(true),
+        ], array_merge(SecureUpload::maxMessages([
+            'proof_image' => 'Payment proof',
+        ]), [
             'proof_image.mimes' => 'Payment proof must be a JPG, PNG, or WEBP image.',
             'proof_image.required' => 'Payment proof image is required.',
-        ]);
+        ]));
 
         $invoiceIds = collect($data['invoice_ids'] ?? [])
             ->map(fn ($id) => (int) $id)

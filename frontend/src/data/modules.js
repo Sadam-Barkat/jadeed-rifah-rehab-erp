@@ -25,6 +25,7 @@ export const ADMIN_NAV = [
 
 /** Staff / role operational modules (shown by role permissions). */
 export const MODULES = [
+  { id: 'reception', name: 'Reception desk', path: '/app/reception', group: 'Patient Care' },
   { id: 'registration', name: 'Patient Registration', path: '/app/registration', group: 'Patient Care' },
   { id: 'admission', name: 'Patient Admission', path: '/app/admission', group: 'Patient Care' },
   { id: 'patients', name: 'Patients', path: '/app/patients', group: 'Patient Care' },
@@ -39,7 +40,6 @@ export const MODULES = [
   { id: 'accounts', name: 'Accounts', path: '/app/accounts', group: 'Finance' },
   { id: 'reports', name: 'Reports', path: '/app/reports', group: 'Finance' },
   { id: 'inventory', name: 'Inventory', path: '/app/inventory', group: 'Operations' },
-  { id: 'kitchen', name: 'Kitchen Stock', path: '/app/kitchen', group: 'Operations' },
   { id: 'visitors', name: 'Gate Visitors', path: '/app/visitors', group: 'Operations' },
 ]
 

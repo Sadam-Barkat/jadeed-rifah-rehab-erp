@@ -10,6 +10,7 @@ const LoginPage = lazy(() => import('./pages/LoginPage'))
 const OwnerDashboard = lazy(() => import('./pages/OwnerDashboard'))
 const RoleHomePage = lazy(() => import('./pages/homes/RoleHomePage'))
 const RegistrationPage = lazy(() => import('./pages/patients/RegistrationPage'))
+const ReceptionDeskPage = lazy(() => import('./pages/reception/ReceptionDeskPage'))
 const PatientsPage = lazy(() => import('./pages/patients/PatientsPage'))
 const PatientDetailPage = lazy(() => import('./pages/patients/PatientDetailPage'))
 const BedsPage = lazy(() => import('./pages/beds/BedsPage'))
@@ -25,7 +26,7 @@ const PaymentApprovalPage = lazy(() => import('./pages/billing/PaymentApprovalPa
 const FeePlanApprovalPage = lazy(() => import('./pages/billing/FeePlanApprovalPage'))
 const VisitorsPage = lazy(() => import('./pages/visitors/VisitorsPage'))
 const InventoryPage = lazy(() => import('./pages/inventory/InventoryPage'))
-const KitchenPage = lazy(() => import('./pages/kitchen/KitchenPage'))
+const InventoryReceiptPage = lazy(() => import('./pages/inventory/InventoryReceiptPage'))
 const AccountsPage = lazy(() => import('./pages/accounts/AccountsPage'))
 const UsersPage = lazy(() => import('./pages/users/UsersPage'))
 const StaffDetailPage = lazy(() => import('./pages/users/StaffDetailPage'))
@@ -53,13 +54,16 @@ export default function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/app" element={<AppLayout />}>
               <Route index element={<HomeRedirect />} />
-              <Route path="home/receptionist" element={<RoleHomePage roleKey="receptionist" />} />
-              <Route path="home/gatekeeper" element={<RoleHomePage roleKey="gatekeeper" />} />
+              <Route path="home/receptionist" element={<Navigate to="/app/reception" replace />} />
+              <Route
+                path="home/gatekeeper"
+                element={<Navigate to="/app/visitors?tab=attendance" replace />}
+              />
               <Route path="home/doctor" element={<RoleHomePage roleKey="doctor" />} />
               <Route path="home/nurse" element={<RoleHomePage roleKey="nurse" />} />
               <Route path="home/finance" element={<Navigate to="/app/billing" replace />} />
               <Route path="home/pharmacist" element={<RoleHomePage roleKey="pharmacist" />} />
-              <Route path="home/inventory" element={<RoleHomePage roleKey="inventory-manager" />} />
+              <Route path="home/inventory" element={<Navigate to="/app/inventory?tab=use" replace />} />
               <Route path="owner-dashboard" element={<OwnerDashboard />} />
               <Route path="admin/patients-beds" element={<AdminSectionPage section="patients" fallbackTitle="Patients & beds overview" />} />
               <Route path="admin/pharmacy" element={<AdminSectionPage section="pharmacy" fallbackTitle="Pharmacy overview" />} />
@@ -70,6 +74,7 @@ export default function App() {
               <Route path="reports" element={<ReportsPage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="logs" element={<LogsPage />} />
+              <Route path="reception" element={<ReceptionDeskPage />} />
               <Route path="registration" element={<RegistrationPage />} />
               <Route path="patients" element={<PatientsPage />} />
               <Route path="patients/:id" element={<PatientDetailPage />} />
@@ -86,7 +91,8 @@ export default function App() {
               <Route path="fee-plans/:id" element={<FeePlanApprovalPage />} />
               <Route path="visitors" element={<VisitorsPage />} />
               <Route path="inventory" element={<InventoryPage />} />
-              <Route path="kitchen" element={<KitchenPage />} />
+              <Route path="inventory-receipts/:id" element={<InventoryReceiptPage />} />
+              <Route path="kitchen" element={<Navigate to="/app/inventory?tab=use" replace />} />
               <Route path="accounts" element={<AccountsPage />} />
               <Route path="users" element={<UsersPage />} />
               <Route path="users/:id" element={<StaffDetailPage />} />

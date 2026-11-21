@@ -35,8 +35,10 @@ Extra staff can still be created by Admin in Management (no self-signup / forgot
 ## Roles
 
 1. Admin — Overview tabs (Patients, Pharmacy, Inventory, Finance, Visitors, Staff) + Management + Settings + Logs  
-2. Receptionist — register + admit  
-3. Gatekeeper — visitor log  
+2. Receptionist — top navbar: Register · Pending · Assign bed · Admitted
+   (No stats home — only Admin sees dashboards. Login opens Register.)
+   Admitted: View → Print / PDF on detail.
+3. Gatekeeper — top navbar: Staff Attendance · Visitors (no home/stats). Visitor entry uses one searchable patient picker; the visitor log shows the last 24 hours, and Gatekeeper check-ins auto-checkout after 24 hours.
 4. Doctor — medical care  
 5. Nurse — nursing notes  
 6. Finance — top navbar (no sidebar): Fees & payments · Petty expenses · Facility bills  
@@ -44,11 +46,10 @@ Extra staff can still be created by Admin in Management (no self-signup / forgot
    Admin finance: Overview · Petty · Facility bills. Plan/payment approve opens from notification → detail page.  
    All non-admin roles use the same top navbar (logo + modules + bell + profile). Admin keeps sidebar.  
 7. Pharmacist — medicines only (stock in + dispense to patients)  
-8. Inventory Manager — non-medicine stock (kitchen, beds, cameras, equipment, etc.) + kitchen  
+8. Inventory Manager — top navbar: Use Stock · Receive Stock · Stock Levels. Use Stock is the default page; add purchases and new items in Receive Stock. Stock Levels highlights low and out-of-stock items. Every item receives an automatic reorder threshold of 10 units.
 
-Medicines are **not** in Inventory. Inventory can upload bill images on add / stock-in.
-Both Pharmacy and Inventory lists have a **Staff** filter (who recorded the action).
-Inventory **Beds** category: stock in / opening stock adds beds (room `INV`). Beds are not stocked out — pick a bed for **Maintenance** (status only) or **Total discard** (stock −1). Occupied beds blocked until patient discharge.
+Medicines are **not** in Inventory. Receive Stock lets staff select an existing item or add a new item, then record quantity, per-unit cost, bill / receipt, and supplier. The signed-in staff member is recorded automatically and shown in Admin reports. Admin receives a notification for each stock receipt; opening it shows the receipt details and bill.
+Inventory **Beds** category: stock receipt adds beds (room `INV`). Beds are not stocked out — pick a bed for **Maintenance** (status only) or **Total discard** (stock −1). Occupied beds blocked until patient discharge.
 
 Admin does not do day-to-day add/stock work in module forms — that stays role-wise.  
 Management tab: add/update/delete staff and manage patients.  
@@ -64,33 +65,34 @@ Management tab: add/update/delete staff and manage patients.
 
 ## Agreed patient / fee flow (building phase by phase)
 
-1. **Receptionist** fills registration (details + CNIC front/back + plan 30/60/90). Submits as **request** (not auto-admit).
-2. **Admin** reviews via Management / bell → Admit (bed) or hold/reject. Admin add form can choose Register / Admit / Discharge + plan.
-3. Admin admit notification opens **Admission** page (basic info). After admit → **Admitted** list. Finance is notified on admit → Create Invoice shows the patient.
-4. **Doctor** requests discharge → Admin confirms → Discharged.
-5. Management patient stages (queues, not alert badges on tabs): Requests · Admitted · Discharge requests · Discharged.
+1. **Receptionist** fills patient + guardian details (CNIC front/back + plan 30/60/90) → **Submit request**.
+2. **Admin** opens request (Management / bell) → **Approve** or **Reject** only (no bed assign).
+3. After approve → **Receptionist** Assign bed → patient becomes **Admitted**.
+4. **Finance** is notified only after full admit (bed assigned) → Create Invoice (patient preselected).
+5. **Doctor** requests discharge → Admin confirms → Discharged.
+6. Management patient stages: Pending · Approved · Rejected · Admitted · Discharge requests · Discharged.
 
 **Done now:**
 - Bell notifications
-- Registration: plan (30/60/90) + CNIC front/back required (request, not auto-admit)
-- Admin action on register: Register request **or** Register+Admit (+ bed)
-- Management patient stages: Requests / Admitted / Discharge requests / Discharged
+- Reception desk tabs (Register / Pending / Assign bed / Admitted) + card lists
+- Registration always creates an approval request (no admin bed on register)
+- Admin Approve / Reject on patient detail
+- Reception bed assign after approve → finance notified on full admit
+- Management patient stages include Approved / Rejected
 - Doctor **Request discharge** → Admin confirms
-- Fees & payments inner tabs: Create Invoice → Awaiting plan → Payment pending (patient cards + modal pay) → Cleared (fully paid patients, cards + pagination)
-- Invoice status badges: Due · Awaiting approval · Paid (Finance pending modal + Admin payment page progress)
-- Payment proof goes to Admin for approve; no separate Collection tab for Finance
-- Default: **1 invoice** (30/60/90) — no Admin plan approval
-- Installment request only when patient asks: 60→max 2, 90→max 2–3 (even monthly split; Finance can edit amounts) → Admin notification → plan page Approve/Reject → invoices created
-- Each payment + proof → Admin notification → payment page Accept/Reject → Cleared when fully paid
-- No “partial” invoice status — unpaid until fully paid, then paid
+- Fees & payments inner tabs: Create Invoice → Awaiting plan → Payment pending → Cleared
+- Invoice status badges: Due · Awaiting approval · Paid
+- Payment proof → Admin Accept/Reject
+- Default: **1 invoice** (30/60/90); installments only when requested
 - Finance dashboard shows approved collection + pending requests
 
 ## Daily flow (current lean)
 
 ```
-Receptionist registers
-→ Admin admits (planned)
+Receptionist registers (request)
+→ Admin Approve / Reject
+→ Receptionist assigns bed → Admitted
+→ Finance notified (create invoice)
 → Doctor / Nurse care
-→ Finance fee + proof (planned)
-→ Discharge request → Admin confirm (planned)
+→ Discharge request → Admin confirm
 ```

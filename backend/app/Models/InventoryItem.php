@@ -8,6 +8,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class InventoryItem extends Model
 {
+    public const DEFAULT_REORDER_LEVEL = 10;
+
     public const CATEGORIES = [
         'kitchen',
         'beds',
@@ -38,14 +40,6 @@ class InventoryItem extends Model
         'other' => 'Other',
     ];
 
-    /** Only these get Low / Critical alerts (consumables). Assets still move in stock in/out. */
-    public const REORDER_ALERT_CATEGORIES = [
-        'kitchen',
-        'cleaning',
-        'linen',
-        'medical_supply',
-    ];
-
     protected $fillable = [
         'item_code',
         'name',
@@ -53,6 +47,7 @@ class InventoryItem extends Model
         'unit',
         'stock_qty',
         'reorder_level',
+        'track_reorder',
         'unit_cost',
         'bill_image_path',
         'supplier',
@@ -79,35 +74,43 @@ class InventoryItem extends Model
         return $s !== '' ? $s : 'other';
     }
 
-    public static function tracksReorderAlert(?string $category): bool
+    public static function isCountUnit(?string $unit): bool
     {
-        return in_array((string) $category, self::REORDER_ALERT_CATEGORIES, true);
+        return in_array(strtolower(trim((string) $unit)), [
+            'pc', 'pcs', 'piece', 'pieces', 'unit', 'units', 'count',
+        ], true);
     }
 
     public function scopeTracksReorder($query)
     {
-        return $query->whereIn('category', self::REORDER_ALERT_CATEGORIES);
+        return $query->where('track_reorder', true);
     }
 
     public function stockStatusLabel(): string
     {
-        if (! self::tracksReorderAlert($this->category)) {
-            return '—';
-        }
         if ((float) $this->stock_qty <= 0) {
-            return 'Critical';
+            return 'Out of stock';
         }
         if ((float) $this->stock_qty <= (float) $this->reorder_level) {
-            return 'Low';
+            return 'Low stock';
         }
 
-        return 'Good';
+        return 'In stock';
     }
 
     public function isLowStock(): bool
     {
-        return self::tracksReorderAlert($this->category)
-            && (float) $this->stock_qty <= (float) $this->reorder_level;
+        return (float) $this->stock_qty <= (float) $this->reorder_level;
+    }
+
+    protected static function booted(): void
+    {
+        static::creating(function (InventoryItem $item) {
+            $item->track_reorder = true;
+            if ($item->reorder_level === null || (float) $item->reorder_level <= 0) {
+                $item->reorder_level = self::DEFAULT_REORDER_LEVEL;
+            }
+        });
     }
 
     protected function casts(): array
@@ -115,6 +118,7 @@ class InventoryItem extends Model
         return [
             'stock_qty' => 'float',
             'reorder_level' => 'float',
+            'track_reorder' => 'boolean',
             'unit_cost' => 'float',
         ];
     }

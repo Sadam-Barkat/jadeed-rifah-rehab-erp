@@ -4,20 +4,55 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Admission;
+use App\Models\Patient;
 use App\Models\VisitorLog;
+use App\Services\GatekeeperVisitorAutoCheckout;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 class VisitorLogController extends Controller
 {
+    public function patients(Request $request): JsonResponse
+    {
+        $perPage = min(max((int) $request->integer('per_page', 100), 1), 100);
+        $paginator = Patient::query()
+            ->orderBy('first_name')
+            ->orderBy('last_name')
+            ->paginate($perPage);
+
+        return response()->json([
+            'data' => collect($paginator->items())->map(fn (Patient $patient) => [
+                'id' => $patient->id,
+                'patient_code' => $patient->patient_code,
+                'full_name' => $patient->full_name,
+            ]),
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+            ],
+        ]);
+    }
+
     public function index(Request $request): JsonResponse
     {
         $perPage = min(max((int) $request->integer('per_page', 20), 1), 50);
+        $isGatekeeper = $request->user()?->role?->slug === 'gatekeeper';
+        $visitorWindowStart = now()->subHours(24);
+
+        if ($isGatekeeper) {
+            app(GatekeeperVisitorAutoCheckout::class)->run();
+        }
 
         $query = VisitorLog::query()
             ->with(['patient', 'admission', 'creator'])
             ->latest('check_in_at');
+
+        if ($isGatekeeper) {
+            $query->where('check_in_at', '>', $visitorWindowStart);
+        }
 
         if ($status = $request->get('status')) {
             $query->where('status', $status);
@@ -97,6 +132,7 @@ class VisitorLogController extends Controller
     {
         $data = $request->validate([
             'admission_id' => ['nullable', 'exists:admissions,id'],
+            'patient_id' => ['nullable', 'exists:patients,id'],
             'visitor_name' => ['required', 'string', 'max:150'],
             'party_size' => ['required', 'integer', 'min:1', 'max:20'],
             'relation' => ['nullable', Rule::in(['relative', 'friend', 'other'])],
@@ -122,6 +158,18 @@ class VisitorLogController extends Controller
                 return response()->json(['message' => 'Select an active admission, or leave patient empty.'], 422);
             }
             $patientId = $admission->patient_id;
+        }
+        if (! empty($data['patient_id'])) {
+            $patient = Patient::query()->findOrFail($data['patient_id']);
+            if ($admission && $admission->patient_id !== $patient->id) {
+                return response()->json(['message' => 'Selected admission does not belong to this patient.'], 422);
+            }
+            $patientId = $patient->id;
+            $admission ??= Admission::query()
+                ->where('patient_id', $patient->id)
+                ->where('status', 'active')
+                ->latest('admitted_at')
+                ->first();
         }
 
         $visit = VisitorLog::query()->create([

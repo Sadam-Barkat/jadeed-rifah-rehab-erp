@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
 import Button from '../../components/ui/Button'
@@ -15,10 +15,15 @@ const emptyForm = {
   consent_notes: '',
 }
 
+const ADMITTED_PATH = '/app/management?tab=patients&status=admitted'
+
 export default function AdmissionPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams] = useSearchParams()
-  const focusPatientId = searchParams.get('patient_id') || ''
+  const focusPatientId =
+    searchParams.get('patient_id') ||
+    (location.state?.patientId ? String(location.state.patientId) : '')
   const focused = Boolean(focusPatientId)
 
   const [loading, setLoading] = useState(true)
@@ -29,9 +34,10 @@ export default function AdmissionPage() {
   const [form, setForm] = useState({
     ...emptyForm,
     patient_id: focusPatientId,
+    program_days: location.state?.planDays ? String(location.state.planDays) : '30',
   })
 
-  const backTo = '/app/management?tab=patients&status=registered'
+  const backTo = location.state?.backTo || '/app/management?tab=patients&status=registered'
 
   function setField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -73,8 +79,10 @@ export default function AdmissionPage() {
           }))
           if (row.status && row.status !== 'registered') {
             toast.message('Patient already processed')
-            navigate('/app/management?tab=patients&status=admitted', { replace: true })
+            navigate(ADMITTED_PATH, { replace: true })
           }
+        } else {
+          toast.error('Patient not found for admission')
         }
       }
     } catch (err) {
@@ -90,6 +98,18 @@ export default function AdmissionPage() {
 
   async function handleSubmit(e) {
     e.preventDefault()
+    if (!form.patient_id) {
+      toast.error('Select a patient')
+      return
+    }
+    if (!form.bed_id) {
+      toast.error('Select an available bed')
+      return
+    }
+    if (!beds.length) {
+      toast.error('No available beds')
+      return
+    }
     setSaving(true)
     try {
       const days = Number(form.program_days)
@@ -106,7 +126,7 @@ export default function AdmissionPage() {
         },
       })
       toast.success(`Admission ${data.data.admission_code} created`)
-      navigate('/app/management?tab=patients&status=admitted', { replace: true })
+      navigate(ADMITTED_PATH, { replace: true })
     } catch (err) {
       toast.error(err.message || 'Admission failed')
     } finally {
@@ -202,14 +222,20 @@ export default function AdmissionPage() {
                 required
                 value={form.bed_id}
                 onChange={(e) => setField('bed_id', e.target.value)}
+                disabled={!beds.length}
               >
-                <option value="">Select bed</option>
+                <option value="">{beds.length ? 'Select bed' : 'No beds available'}</option>
                 {beds.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.bed_code} · {b.room_name} (Floor {b.floor || '—'})
                   </option>
                 ))}
               </select>
+              {!beds.length ? (
+                <p className="panel-copy" style={{ marginTop: 6 }}>
+                  Free a bed first, then admit this patient.
+                </p>
+              ) : null}
             </div>
 
             <div className="ui-field">

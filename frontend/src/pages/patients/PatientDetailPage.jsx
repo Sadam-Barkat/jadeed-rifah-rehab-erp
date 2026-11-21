@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'react'
-import { Link, useLocation, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
 import { useAuth } from '../../context/AuthContext'
 import Button from '../../components/ui/Button'
+import Modal from '../../components/ui/Modal'
 import Skeleton from '../../components/ui/Skeleton'
 import '../pages.css'
 
 function Cell({ label, value, span }) {
+  if (value == null || String(value).trim() === '') return null
   return (
     <div className={`gov-cell${span ? ` gov-span-${span}` : ''}`}>
       <span className="gov-label">{label}</span>
-      <span className="gov-value">{value || '—'}</span>
+      <span className="gov-value">{value}</span>
     </div>
   )
 }
@@ -19,13 +21,24 @@ function Cell({ label, value, span }) {
 export default function PatientDetailPage() {
   const { id } = useParams()
   const location = useLocation()
+  const navigate = useNavigate()
   const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [patient, setPatient] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [rejectReason, setRejectReason] = useState('')
+
+  const isAdmin = user?.role_slug === 'admin'
+  const isReception = user?.role_slug === 'receptionist'
 
   const backTo =
     location.state?.backTo ||
-    (user?.role_slug === 'admin' ? '/app/management?tab=patients' : '/app/patients')
+    (isReception
+      ? '/app/reception?tab=pending'
+      : isAdmin
+        ? '/app/management?tab=patients&status=registered'
+        : '/app/patients')
 
   useEffect(() => {
     let cancelled = false
@@ -47,6 +60,39 @@ export default function PatientDetailPage() {
       cancelled = true
     }
   }, [id])
+
+  async function approve() {
+    setSaving(true)
+    try {
+      const data = await api(`/patients/${id}/approve`, { method: 'POST' })
+      toast.success(data.message || 'Request approved')
+      setPatient(data.data)
+      navigate('/app/management?tab=patients&status=approved', { replace: true })
+    } catch (err) {
+      toast.error(err.message || 'Approve failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function reject() {
+    setSaving(true)
+    try {
+      const data = await api(`/patients/${id}/reject`, {
+        method: 'POST',
+        body: { reason: rejectReason.trim() || null },
+      })
+      toast.success(data.message || 'Request rejected')
+      setRejectOpen(false)
+      setRejectReason('')
+      setPatient(data.data)
+      navigate('/app/management?tab=patients&status=rejected', { replace: true })
+    } catch (err) {
+      toast.error(err.message || 'Reject failed')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -70,6 +116,8 @@ export default function PatientDetailPage() {
 
   const guardian = patient.guardians?.[0]
   const statusLabel = String(patient.status || '').replaceAll('_', ' ')
+  const canDecide = isAdmin && patient.status === 'registered'
+  const canAssignBed = isReception && patient.status === 'approved'
 
   return (
     <div className="page patient-profile">
@@ -79,16 +127,30 @@ export default function PatientDetailPage() {
           <h2>{patient.full_name}</h2>
         </div>
         <div className="page-actions">
-          {user?.role_slug === 'admin' && patient.status === 'registered' ? (
+          {canDecide ? (
+            <>
+              <Button type="button" disabled={saving} onClick={approve}>
+                {saving ? 'Saving…' : 'Approve'}
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                disabled={saving}
+                onClick={() => setRejectOpen(true)}
+              >
+                Reject
+              </Button>
+            </>
+          ) : null}
+          {canAssignBed ? (
             <Link
               className="ui-btn ui-btn-primary ui-btn-md"
-              to="/app/admission"
-              state={{ patientId: patient.id, planDays: patient.plan_days, backTo }}
+              to={`/app/reception?tab=assign&patient_id=${patient.id}`}
             >
-              Admit
+              Assign bed
             </Link>
           ) : null}
-          {user?.role_slug === 'admin' && patient.status === 'discharge_requested' ? (
+          {isAdmin && patient.status === 'discharge_requested' ? (
             <Link
               className="ui-btn ui-btn-primary ui-btn-md"
               to="/app/discharge"
@@ -140,6 +202,27 @@ export default function PatientDetailPage() {
           </div>
         </section>
 
+        {guardian ? (
+          <section className="gov-cnic-block">
+            <div className="gov-cnic-card">
+              {guardian.cnic_front_url ? (
+                <img src={guardian.cnic_front_url} alt="Guardian CNIC front" />
+              ) : (
+                <div className="gov-cnic-empty">No front image</div>
+              )}
+              <span>Guardian CNIC Front</span>
+            </div>
+            <div className="gov-cnic-card">
+              {guardian.cnic_back_url ? (
+                <img src={guardian.cnic_back_url} alt="Guardian CNIC back" />
+              ) : (
+                <div className="gov-cnic-empty">No back image</div>
+              )}
+              <span>Guardian CNIC Back</span>
+            </div>
+          </section>
+        ) : null}
+
         <section className="gov-grid">
           <Cell label="Patient code" value={patient.patient_code} />
           <Cell label="Status" value={statusLabel} />
@@ -154,7 +237,6 @@ export default function PatientDetailPage() {
           <Cell label="Blood group" value={patient.blood_group} />
           <Cell label="Marital status" value={patient.marital_status} />
           <Cell label="Phone" value={patient.phone} />
-          <Cell label="Email" value={patient.email} />
           <Cell label="City" value={patient.city} />
           <Cell label="Plan" value={patient.plan_days ? `${patient.plan_days} days` : null} />
           <Cell label="Referral source" value={patient.referral_source} />
@@ -167,6 +249,32 @@ export default function PatientDetailPage() {
           <Cell label="Guardian address" value={guardian?.address} span={2} />
         </section>
       </div>
+
+      <Modal
+        open={rejectOpen}
+        title="Reject request"
+        size="sm"
+        onClose={() => {
+          if (saving) return
+          setRejectOpen(false)
+          setRejectReason('')
+        }}
+        confirmLabel={saving ? 'Saving…' : 'Reject'}
+        onConfirm={reject}
+        confirm
+        danger
+      >
+        <div className="ui-field">
+          <label htmlFor="reject_reason">Reason (optional)</label>
+          <input
+            id="reject_reason"
+            className="ui-input"
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            maxLength={255}
+          />
+        </div>
+      </Modal>
     </div>
   )
 }

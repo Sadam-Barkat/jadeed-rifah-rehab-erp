@@ -129,6 +129,33 @@ export default function BarChart({
   }, [series.length, isLine, isCompare])
 
   useEffect(() => {
+    const el = scrollerRef.current
+    if (!el || series.length <= 8 || isLine || isCompare) return
+
+    const now = new Date()
+    const month = new Intl.DateTimeFormat('en', { month: 'short' }).format(now)
+    const year = String(now.getFullYear())
+    let currentMonthIndex = -1
+
+    series.forEach((item, index) => {
+      const label = String(item.label || '')
+      if (new RegExp(`(^|\\s)${month}(\\s|$)`, 'i').test(label) &&
+        (!/\b\d{4}\b/.test(label) || label.includes(year))) {
+        currentMonthIndex = index
+      }
+    })
+
+    if (currentMonthIndex < 0) return
+    const currentMonthBar = el.children[currentMonthIndex]
+    if (!(currentMonthBar instanceof HTMLElement)) return
+
+    el.scrollLeft = Math.max(
+      0,
+      currentMonthBar.offsetLeft + currentMonthBar.offsetWidth - el.clientWidth
+    )
+  }, [series, isLine, isCompare])
+
+  useEffect(() => {
     hideFloatTip()
     setPicked([])
   }, [series, lines, categories])

@@ -41,6 +41,7 @@ class InventoryMovement extends Model
         'used_for',
         'quantity',
         'unit',
+        'unit_cost',
         'reference',
         'bill_image_path',
         'notes',
@@ -52,6 +53,7 @@ class InventoryMovement extends Model
     {
         return [
             'quantity' => 'float',
+            'unit_cost' => 'float',
             'moved_at' => 'datetime',
         ];
     }

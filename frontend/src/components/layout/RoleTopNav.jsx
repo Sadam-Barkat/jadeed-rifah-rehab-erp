@@ -15,6 +15,24 @@ const FINANCE_TABS = [
   { to: '/app/billing?tab=bills', label: 'Facility bills', match: 'bills' },
 ]
 
+const RECEPTION_TABS = [
+  { to: '/app/reception?tab=register', label: 'Register', match: 'register' },
+  { to: '/app/reception?tab=pending', label: 'Pending', match: 'pending' },
+  { to: '/app/reception?tab=assign', label: 'Assign bed', match: 'assign' },
+  { to: '/app/reception?tab=admitted', label: 'Admitted', match: 'admitted' },
+]
+
+const GATE_TABS = [
+  { to: '/app/visitors?tab=attendance', label: 'Staff Attendance', match: 'attendance' },
+  { to: '/app/visitors?tab=visitors', label: 'Visitors', match: 'visitors' },
+]
+
+const INVENTORY_TABS = [
+  { to: '/app/inventory?tab=use', label: 'Use Stock', match: 'use' },
+  { to: '/app/inventory?tab=receive', label: 'Receive Stock', match: 'receive' },
+  { to: '/app/inventory?tab=levels', label: 'Stock Levels', match: 'levels' },
+]
+
 function initials(name) {
   const parts = String(name || '').trim().split(/\s+/).filter(Boolean)
   if (!parts.length) return '?'
@@ -51,7 +69,13 @@ export default function RoleTopNav({ onLogoutClick }) {
   const [profileOpen, setProfileOpen] = useState(false)
 
   const isFinance = user?.role_slug === 'finance'
-  const items = useMemo(() => (isFinance ? [] : navItemsForUser(user)), [isFinance, user])
+  const isReception = user?.role_slug === 'receptionist'
+  const isGate = user?.role_slug === 'gatekeeper'
+  const isInventoryManager = user?.role_slug === 'inventory-manager'
+  const items = useMemo(
+    () => (isFinance || isReception || isGate || isInventoryManager ? [] : navItemsForUser(user)),
+    [isFinance, isReception, isGate, isInventoryManager, user]
+  )
 
   useEffect(() => {
     if (!menuOpen) return undefined
@@ -65,6 +89,16 @@ export default function RoleTopNav({ onLogoutClick }) {
   const params = new URLSearchParams(location.search)
   const financeTab = params.get('tab') || 'fees'
   const onBilling = location.pathname.startsWith('/app/billing')
+  const rawReceptionTab = params.get('tab') || 'register'
+  const receptionTab = rawReceptionTab === 'requests' ? 'pending' : rawReceptionTab
+  const onReception = location.pathname.startsWith('/app/reception')
+  const gateTab = params.get('tab') || 'attendance'
+  const onGate = location.pathname.startsWith('/app/visitors')
+  const rawInventoryTab = params.get('tab') || 'use'
+  const inventoryTab = INVENTORY_TABS.some((tab) => tab.match === rawInventoryTab)
+    ? rawInventoryTab
+    : 'use'
+  const onInventory = location.pathname.startsWith('/app/inventory')
 
   return (
     <>
@@ -95,15 +129,54 @@ export default function RoleTopNav({ onLogoutClick }) {
                   </NavLink>
                 )
               })
-            : items.map((item) => (
-                <NavLink
-                  key={item.id}
-                  to={item.to}
-                  className={({ isActive }) => `role-nav-tab${isActive ? ' is-active' : ''}`}
-                >
-                  {item.label}
-                </NavLink>
-              ))}
+            : isReception
+              ? RECEPTION_TABS.map((tab) => {
+                  const active = onReception && receptionTab === tab.match
+                  return (
+                    <NavLink
+                      key={tab.match}
+                      to={tab.to}
+                      className={`role-nav-tab${active ? ' is-active' : ''}`}
+                    >
+                      {tab.label}
+                    </NavLink>
+                  )
+                })
+              : isGate
+                ? GATE_TABS.map((tab) => {
+                    const active = onGate && gateTab === tab.match
+                    return (
+                      <NavLink
+                        key={tab.match}
+                        to={tab.to}
+                        className={`role-nav-tab${active ? ' is-active' : ''}`}
+                      >
+                        {tab.label}
+                      </NavLink>
+                    )
+                  })
+                : isInventoryManager
+                  ? INVENTORY_TABS.map((tab) => {
+                      const active = onInventory && inventoryTab === tab.match
+                      return (
+                        <NavLink
+                          key={tab.match}
+                          to={tab.to}
+                          className={`role-nav-tab${active ? ' is-active' : ''}`}
+                        >
+                          {tab.label}
+                        </NavLink>
+                      )
+                    })
+                  : items.map((item) => (
+                    <NavLink
+                      key={item.id}
+                      to={item.to}
+                      className={({ isActive }) => `role-nav-tab${isActive ? ' is-active' : ''}`}
+                    >
+                      {item.label}
+                    </NavLink>
+                  ))}
         </nav>
 
         <div className="role-nav-right">

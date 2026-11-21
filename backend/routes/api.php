@@ -47,6 +47,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/notifications', [NotificationController::class, 'index']);
     Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+    Route::get('/notifications/stock-receipts/{movement}', [NotificationController::class, 'stockReceipt']);
     Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
     Route::post('/notifications/{notification}/read', [NotificationController::class, 'markRead']);
 
@@ -59,6 +60,8 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::middleware(['module:patients,registration', 'admin'])->group(function () {
+        Route::post('/patients/{patient}/approve', [PatientController::class, 'approve']);
+        Route::post('/patients/{patient}/reject', [PatientController::class, 'reject']);
         Route::delete('/patients/{patient}', [PatientController::class, 'destroy']);
     });
 
@@ -154,6 +157,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::middleware('module:visitors,patients')->group(function () {
+        Route::get('/visitor-patients', [VisitorLogController::class, 'patients']);
         Route::get('/visitor-logs', [VisitorLogController::class, 'index']);
         Route::get('/visitor-directory', [VisitorLogController::class, 'directory']);
         Route::post('/visitor-logs', [VisitorLogController::class, 'store']);

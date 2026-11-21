@@ -54,26 +54,23 @@ class PatientController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $request->user()?->loadMissing('role');
-        $isAdmin = $request->user()?->role?->slug === 'admin';
-
         $data = $this->validated($request);
-        $data['action_mode'] = $isAdmin
-            ? ($request->input('action_mode', 'register'))
-            : 'register';
+        // Always create an approval request — bed assign is reception after admin approve.
+        $data['action_mode'] = 'register';
 
-        if ($data['action_mode'] === 'admit') {
-            $request->validate([
-                'bed_id' => ['required', 'exists:beds,id'],
-            ]);
-            $data['bed_id'] = (int) $request->input('bed_id');
-        }
-
+        $hasGuardian = filled(data_get($data, 'guardian.name'));
         $request->validate([
-            'cnic_front' => ['required', 'file', 'max:5120', 'mimes:jpg,jpeg,png,webp'],
-            'cnic_back' => ['required', 'file', 'max:5120', 'mimes:jpg,jpeg,png,webp'],
+            'cnic_front' => SecureUpload::imageRules(true),
+            'cnic_back' => SecureUpload::imageRules(true),
+            'guardian_cnic_front' => SecureUpload::imageRules($hasGuardian),
+            'guardian_cnic_back' => SecureUpload::imageRules($hasGuardian),
             'plan_days' => ['required', Rule::in([30, 60, 90])],
-        ]);
+        ], SecureUpload::maxMessages([
+            'cnic_front' => 'CNIC front image',
+            'cnic_back' => 'CNIC back image',
+            'guardian_cnic_front' => 'Guardian CNIC front image',
+            'guardian_cnic_back' => 'Guardian CNIC back image',
+        ]));
 
         $data['cnic'] = $this->normalizeCnic($data['cnic'] ?? null);
         $data['phone'] = $this->normalizePhone($data['phone'] ?? null);
@@ -106,51 +103,38 @@ class PatientController extends Controller
 
         $frontPath = SecureUpload::storeImage($request->file('cnic_front'), 'patient-cnic', 'cnic_f_');
         $backPath = SecureUpload::storeImage($request->file('cnic_back'), 'patient-cnic', 'cnic_b_');
+        $gFrontPath = $request->hasFile('guardian_cnic_front')
+            ? SecureUpload::storeImage($request->file('guardian_cnic_front'), 'guardian-cnic', 'gcnic_f_')
+            : null;
+        $gBackPath = $request->hasFile('guardian_cnic_back')
+            ? SecureUpload::storeImage($request->file('guardian_cnic_back'), 'guardian-cnic', 'gcnic_b_')
+            : null;
 
         try {
-            $patient = DB::transaction(function () use ($request, $data, $frontPath, $backPath) {
-                $status = $data['action_mode'] === 'admit' ? 'admitted' : 'registered';
-
+            $patient = DB::transaction(function () use ($request, $data, $frontPath, $backPath, $gFrontPath, $gBackPath) {
                 $patient = Patient::query()->create([
                     ...$this->patientFields($data),
                     'plan_days' => (int) $data['plan_days'],
                     'cnic_front_path' => $frontPath,
                     'cnic_back_path' => $backPath,
                     'patient_code' => $this->nextPatientCode(),
-                    'status' => $status,
+                    'status' => 'registered',
                     'created_by' => $request->user()->id,
                     'updated_by' => $request->user()->id,
                 ]);
 
-                if (! empty($data['guardian'])) {
+                if (! empty($data['guardian']['name'])) {
                     $patient->guardians()->create([
-                        ...$data['guardian'],
+                        'name' => $data['guardian']['name'],
+                        'relation' => $data['guardian']['relation'] ?? null,
+                        'phone' => $data['guardian']['phone'] ?? null,
+                        'cnic' => $data['guardian']['cnic'] ?? null,
+                        'address' => $data['guardian']['address'] ?? null,
+                        'cnic_front_path' => $gFrontPath,
+                        'cnic_back_path' => $gBackPath,
                         'is_primary' => true,
                         'is_emergency' => $data['guardian']['is_emergency'] ?? true,
                     ]);
-                }
-
-                if ($data['action_mode'] === 'admit') {
-                    $bed = Bed::query()->lockForUpdate()->findOrFail($data['bed_id']);
-                    if ($bed->status !== 'available') {
-                        throw ValidationException::withMessages([
-                            'bed_id' => ['Selected bed is not available.'],
-                        ]);
-                    }
-
-                    Admission::query()->create([
-                        'admission_code' => $this->nextAdmissionCode(),
-                        'patient_id' => $patient->id,
-                        'bed_id' => $bed->id,
-                        'admitted_at' => now(),
-                        'program_days' => (int) $data['plan_days'],
-                        'package_name' => $data['plan_days'].'-Day Program',
-                        'status' => 'active',
-                        'created_by' => $request->user()->id,
-                        'updated_by' => $request->user()->id,
-                    ]);
-
-                    $bed->update(['status' => 'occupied']);
                 }
 
                 return $patient->load('guardians');
@@ -168,32 +152,86 @@ class PatientController extends Controller
             $notifier->notifyRoleSlugs(
                 ['admin'],
                 'patient.registered',
-                'Admit request',
+                'Approval request',
                 $patient->full_name.' · '.$patient->patient_code,
-                '/app/admission?patient_id='.$patient->id,
-                $meta,
-                $request->user()->id,
-            );
-        }
-
-        if ($patient->status === 'admitted') {
-            $notifier->notifyRoleSlugs(
-                ['finance'],
-                'patient.admitted',
-                'New admission — collect fee',
-                $patient->full_name.' · '.$patient->plan_days.'-day plan',
-                '/app/billing?tab=fees&fees=create',
+                '/app/patients/'.$patient->id,
                 $meta,
                 $request->user()->id,
             );
         }
 
         return response()->json([
-            'message' => $patient->status === 'admitted'
-                ? 'Patient registered and admitted'
-                : 'Registration submitted for admin review',
+            'message' => 'Registration submitted for admin approval',
             'data' => $this->detailPayload($patient),
         ], 201);
+    }
+
+    public function approve(Request $request, Patient $patient): JsonResponse
+    {
+        if ($patient->status !== 'registered') {
+            return response()->json(['message' => 'Only pending requests can be approved.'], 422);
+        }
+
+        $patient->update([
+            'status' => 'approved',
+            'updated_by' => $request->user()->id,
+        ]);
+
+        Audit::log('patient.approve', 'patients', 'patient', $patient->id, "Approved {$patient->patient_code}");
+
+        app(AppNotifier::class)->notifyRoleSlugs(
+            ['receptionist'],
+            'patient.approved',
+            'Request approved — assign bed',
+            $patient->full_name.' · '.$patient->patient_code,
+            '/app/reception?tab=assign&patient_id='.$patient->id,
+            ['patient_id' => $patient->id, 'patient_code' => $patient->patient_code],
+            $request->user()->id,
+        );
+
+        return response()->json([
+            'message' => 'Request approved — reception can assign bed',
+            'data' => $this->detailPayload($patient->fresh()->load('guardians')),
+        ]);
+    }
+
+    public function reject(Request $request, Patient $patient): JsonResponse
+    {
+        $data = $request->validate([
+            'reason' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        if ($patient->status !== 'registered') {
+            return response()->json(['message' => 'Only pending requests can be rejected.'], 422);
+        }
+
+        $patient->update([
+            'status' => 'rejected',
+            'updated_by' => $request->user()->id,
+        ]);
+
+        Audit::log(
+            'patient.reject',
+            'patients',
+            'patient',
+            $patient->id,
+            'Rejected '.$patient->patient_code.(! empty($data['reason']) ? ': '.$data['reason'] : '')
+        );
+
+        app(AppNotifier::class)->notifyRoleSlugs(
+            ['receptionist'],
+            'patient.rejected',
+            'Request rejected',
+            $patient->full_name.' · '.($data['reason'] ?: $patient->patient_code),
+            '/app/reception?tab=pending',
+            ['patient_id' => $patient->id, 'patient_code' => $patient->patient_code],
+            $request->user()->id,
+        );
+
+        return response()->json([
+            'message' => 'Request rejected',
+            'data' => $this->detailPayload($patient->fresh()->load('guardians')),
+        ]);
     }
 
     public function show(Patient $patient): JsonResponse
@@ -513,6 +551,8 @@ class PatientController extends Controller
                 'relation' => $g->relation,
                 'phone' => $g->phone,
                 'cnic' => $g->cnic,
+                'cnic_front_url' => SecureUpload::url($g->cnic_front_path),
+                'cnic_back_url' => SecureUpload::url($g->cnic_back_path),
                 'address' => $g->address,
                 'is_primary' => $g->is_primary,
                 'is_emergency' => $g->is_emergency,

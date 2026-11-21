@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Camera, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
+import { isWithinUploadLimit, uploadTooLargeMessage } from '../../lib/uploadLimits'
 import { useAuth } from '../../context/AuthContext'
 import Modal from '../ui/Modal'
 
@@ -119,6 +120,11 @@ export default function ProfileEditModal({ open, onClose }) {
 
   function onPickPhoto(e) {
     const file = e.target.files?.[0] || null
+    if (file && !isWithinUploadLimit(file)) {
+      toast.error(uploadTooLargeMessage('Photo'))
+      e.target.value = ''
+      return
+    }
     setPhotoFile(file)
     if (file) setRemovePhoto(false)
   }

@@ -7,6 +7,7 @@ use App\Models\Bed;
 use App\Models\InventoryItem;
 use App\Models\InventoryMovement;
 use App\Models\User;
+use App\Services\AppNotifier;
 use App\Services\InventoryCapacitySync;
 use App\Support\SecureUpload;
 use Illuminate\Http\JsonResponse;
@@ -88,16 +89,27 @@ class InventoryMovementController extends Controller
             'department' => ['nullable', Rule::in(InventoryMovement::DEPARTMENTS)],
             'issued_to' => ['nullable', 'string', 'max:120'],
             'used_for' => ['nullable', 'string', 'max:255'],
+            'supplier' => ['nullable', 'string', 'max:120'],
+            'unit_cost' => ['nullable', 'numeric', 'min:0'],
             'reference' => ['nullable', 'string', 'max:150'],
             'notes' => ['nullable', 'string'],
             'moved_at' => ['nullable', 'date'],
-            'bill_image' => ['nullable', 'file', 'max:5120', 'mimes:jpg,jpeg,png,webp,pdf'],
+            'bill_image' => SecureUpload::imageRules(false, true),
             'bed_id' => ['nullable', 'integer', 'exists:beds,id'],
             'bed_action' => ['nullable', Rule::in(['maintenance', 'discard'])],
-        ]);
+        ], SecureUpload::maxMessages([
+            'bill_image' => 'Bill image',
+        ]));
 
         $itemPreview = InventoryItem::query()->findOrFail($data['inventory_item_id']);
         $isBedsItem = $itemPreview->category === 'beds';
+
+        if ($data['type'] === 'in') {
+            $request->validate([
+                'unit_cost' => ['required', 'numeric', 'min:0'],
+                'bill_image' => SecureUpload::imageRules(true, true),
+            ]);
+        }
 
         if ($isBedsItem && $data['type'] === 'out') {
             $request->validate([
@@ -121,7 +133,6 @@ class InventoryMovementController extends Controller
             ]);
             if ($data['type'] === 'out') {
                 $request->validate([
-                    'used_for' => ['required', 'string', 'max:255'],
                     'department' => ['required', Rule::in(InventoryMovement::DEPARTMENTS)],
                 ]);
             }
@@ -130,6 +141,8 @@ class InventoryMovementController extends Controller
         $actorName = trim((string) ($request->user()?->name ?? ''));
         if ($data['type'] === 'out') {
             $data['issued_to'] = $actorName !== '' ? $actorName : 'Inventory staff';
+        } elseif (isset($data['supplier'])) {
+            $data['issued_to'] = $data['supplier'];
         }
 
         $billPath = null;
@@ -149,6 +162,10 @@ class InventoryMovementController extends Controller
 
                 $qty = (float) ($data['quantity'] ?? 1);
                 $capacity = app(InventoryCapacitySync::class);
+
+                if (in_array($data['type'], ['in', 'out'], true) && InventoryItem::isCountUnit($item->unit) && floor($qty) !== $qty) {
+                    throw new \RuntimeException("Use whole numbers for {$item->unit}.");
+                }
 
                 if ($isBedsItem && $data['type'] === 'out') {
                     $bed = Bed::query()->lockForUpdate()->findOrFail($data['bed_id']);
@@ -171,14 +188,23 @@ class InventoryMovementController extends Controller
                         $stock = $qty;
                     }
 
-                    $item->update(['stock_qty' => round($stock, 2)]);
+                    $itemUpdates = ['stock_qty' => round($stock, 2)];
+                    if ($data['type'] === 'in') {
+                        $itemUpdates['track_reorder'] = true;
+                        $itemUpdates['reorder_level'] = InventoryItem::DEFAULT_REORDER_LEVEL;
+                        $itemUpdates['unit_cost'] = $data['unit_cost'];
+                        if (array_key_exists('supplier', $data)) {
+                            $itemUpdates['supplier'] = $data['supplier'];
+                        }
+                    }
+                    $item->update($itemUpdates);
 
                     if ($isBedsItem && $data['type'] === 'in') {
                         $sync = $capacity->syncStockIn($item->fresh(), $qty);
                     }
                 }
 
-                return InventoryMovement::query()->create([
+                $movement = InventoryMovement::query()->create([
                     'movement_code' => $this->nextCode(),
                     'inventory_item_id' => $item->id,
                     'type' => $data['type'],
@@ -188,12 +214,43 @@ class InventoryMovementController extends Controller
                     'used_for' => $data['used_for'] ?? null,
                     'quantity' => $qty,
                     'unit' => $item->unit,
+                    'unit_cost' => $data['unit_cost'] ?? null,
                     'reference' => $data['reference'] ?? null,
                     'bill_image_path' => $billPath,
                     'notes' => $data['notes'] ?? null,
                     'moved_at' => $data['moved_at'] ?? now(),
                     'created_by' => $request->user()->id,
                 ])->load(['item', 'creator:id,name,staff_code']);
+
+                if ($movement->type === 'in') {
+                    $qtyLabel = trim(
+                        rtrim(rtrim(number_format((float) $movement->quantity, 2, '.', ''), '0'), '.')
+                        .' '.$movement->unit
+                    );
+                    $body = $movement->item->name.' · '.$qtyLabel
+                        .' · Total: PKR '.number_format(
+                            (float) $movement->quantity * (float) $movement->unit_cost,
+                            2
+                        );
+                    if ($movement->issued_to) {
+                        $body .= ' · Supplier: '.$movement->issued_to;
+                    }
+                    if ($movement->creator?->name) {
+                        $body .= ' · Recorded by: '.$movement->creator->name;
+                    }
+
+                    app(AppNotifier::class)->notifyRoleSlugs(
+                        ['admin', 'owner'],
+                        'inventory.stock_received',
+                        'Stock received',
+                        $body,
+                        '/app/inventory-receipts/'.$movement->id,
+                        ['inventory_movement_id' => $movement->id],
+                        $request->user()->id,
+                    );
+                }
+
+                return $movement;
             });
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
@@ -231,6 +288,7 @@ class InventoryMovementController extends Controller
             'used_for' => $movement->used_for,
             'quantity' => $movement->quantity,
             'unit' => $unit,
+            'unit_cost' => $movement->unit_cost,
             'qty_label' => trim(rtrim(rtrim(number_format((float) $movement->quantity, 2, '.', ''), '0'), '.').' '.$unit),
             'reference' => $movement->reference,
             'bill_image_url' => SecureUpload::url($movement->bill_image_path),

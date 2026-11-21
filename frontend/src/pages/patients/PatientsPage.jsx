@@ -8,7 +8,9 @@ import '../pages.css'
 
 const STATUS_FILTERS = [
   { id: '', label: 'All' },
-  { id: 'registered', label: 'Requests' },
+  { id: 'registered', label: 'Pending' },
+  { id: 'approved', label: 'Approved' },
+  { id: 'rejected', label: 'Rejected' },
   { id: 'admitted', label: 'Admitted' },
   { id: 'discharge_requested', label: 'Discharge requests' },
   { id: 'discharged', label: 'Discharged' },
@@ -141,7 +143,7 @@ export default function PatientsPage({ embedded = false }) {
       ) : rows.length === 0 ? (
         <p className="panel-copy">No patients found.</p>
       ) : (
-        <div className="entity-card-grid">
+        <div className="scroll-panel entity-card-grid">
           {rows.map((row) => (
             <article key={row.id} className="entity-card">
               <div className="entity-card-top">
@@ -165,7 +167,15 @@ export default function PatientsPage({ embedded = false }) {
                 <Link
                   className="ui-btn ui-btn-secondary ui-btn-sm"
                   to={`/app/patients/${row.id}`}
-                  state={embedded ? { backTo: '/app/management?tab=patients' } : undefined}
+                  state={
+                    embedded
+                      ? {
+                          backTo: status
+                            ? `/app/management?tab=patients&status=${status}`
+                            : '/app/management?tab=patients',
+                        }
+                      : undefined
+                  }
                 >
                   View
                 </Link>

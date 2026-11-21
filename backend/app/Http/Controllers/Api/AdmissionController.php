@@ -72,6 +72,10 @@ class AdmissionController extends Controller
             return response()->json(['message' => 'Patient is already admitted.'], 422);
         }
 
+        if ($patient->status !== 'approved') {
+            return response()->json(['message' => 'Patient must be approved by admin before bed assignment.'], 422);
+        }
+
         if (Admission::query()->where('patient_id', $patient->id)->where('status', 'active')->exists()) {
             return response()->json(['message' => 'Patient already has an active admission.'], 422);
         }
@@ -122,7 +126,7 @@ class AdmissionController extends Controller
                 'patient.admitted',
                 'New admission — collect fee',
                 ($patient->full_name ?: 'Patient').' · '.(int) $admission->program_days.'-day plan',
-                '/app/billing?tab=fees&fees=create',
+                '/app/billing?tab=fees&fees=create&patient_id='.$patient->id,
                 [
                     'patient_id' => $patient->id,
                     'patient_code' => $patient->patient_code,

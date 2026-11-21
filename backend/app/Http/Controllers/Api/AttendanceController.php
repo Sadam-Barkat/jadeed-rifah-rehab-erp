@@ -51,8 +51,10 @@ class AttendanceController extends Controller
 
         $data = $request->validate([
             'attendance_code' => ['required', 'string', 'size:4'],
-            'photo' => ['required', 'file', 'max:5120', 'mimes:jpg,jpeg,png,webp'],
-        ]);
+            'photo' => SecureUpload::imageRules(true),
+        ], SecureUpload::maxMessages([
+            'photo' => 'Photo',
+        ]));
 
         $code = preg_replace('/\D+/', '', $data['attendance_code']) ?: '';
         if (strlen($code) !== 4) {

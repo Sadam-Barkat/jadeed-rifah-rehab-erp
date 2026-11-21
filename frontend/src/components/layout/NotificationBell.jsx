@@ -115,15 +115,23 @@ export default function NotificationBell() {
     const patientId = Number(item?.meta?.patient_id || 0)
     const link = String(item?.link || '').trim()
     if (patientId > 0) {
+      if (link.includes('/reception')) return link
       if (link.includes('billing') || link.includes('fees=create')) {
-        return '/app/billing?tab=fees&fees=create'
+        return `/app/billing?tab=fees&fees=create&patient_id=${patientId}`
       }
-      if (!link || link.includes('management') || link.includes('admission')) {
-        return `/app/admission?patient_id=${patientId}`
+      if (
+        !link ||
+        link.includes('management') ||
+        link.includes('admission') ||
+        link.includes('/patients/')
+      ) {
+        return `/app/patients/${patientId}`
       }
     }
     if (link === '/app/billing' || link.endsWith('/billing')) {
-      return '/app/billing?tab=fees&fees=create'
+      return patientId > 0
+        ? `/app/billing?tab=fees&fees=create&patient_id=${patientId}`
+        : '/app/billing?tab=fees&fees=create'
     }
     return link || null
   }

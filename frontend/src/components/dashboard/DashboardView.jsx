@@ -18,9 +18,15 @@ function statusClass(value) {
   const v = String(value || '')
     .trim()
     .toLowerCase()
-  if (['critical', 'danger', 'unpaid', 'archived', 'inactive', 'occupied'].includes(v)) return 'badge-danger'
-  if (['low', 'warning', 'partial', 'pending', 'registered', 'checked_in'].includes(v)) return 'badge-warn'
-  if (['good', 'active', 'paid', 'completed', 'success', 'admitted', 'checked_out', 'available'].includes(v)) {
+  if (['critical', 'out of stock', 'danger', 'unpaid', 'archived', 'inactive', 'occupied'].includes(v)) return 'badge-danger'
+  if (['low', 'low stock', 'warning', 'partial', 'pending', 'registered', 'rejected', 'checked_in'].includes(v)) {
+    return 'badge-warn'
+  }
+  if (
+    ['good', 'active', 'paid', 'completed', 'success', 'admitted', 'approved', 'checked_out', 'available'].includes(
+      v
+    )
+  ) {
     return 'badge-ok'
   }
   return ''
@@ -209,12 +215,15 @@ function DetailModal({ open, detail, onClose }) {
                   {row.map((cell, cIdx) => {
                     const colName = String(columns[cIdx] || '')
                     const isPhoto = colName.toLowerCase() === 'photo' && typeof cell === 'string' && /^https?:\/\//.test(cell)
+                    const isBill = colName.toLowerCase() === 'bill' && typeof cell === 'string' && /^https?:\/\//.test(cell)
                     return (
                       <td key={`${idx}-${cIdx}`}>
                         {isPhoto ? (
                           <a href={cell} target="_blank" rel="noreferrer" className="att-photo-link">
                             <img src={cell} alt="Attendance" className="att-photo-thumb" />
                           </a>
+                        ) : isBill ? (
+                          <a href={cell} target="_blank" rel="noreferrer">View bill</a>
                         ) : (colName.toLowerCase() === 'status' || cIdx === row.length - 1) &&
                           statusClass(cell) ? (
                           <span className={`badge ${statusClass(cell)}`}>{cell}</span>

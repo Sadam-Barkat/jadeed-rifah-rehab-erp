@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Copy, MessageCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
+import { isWithinUploadLimit, uploadTooLargeMessage } from '../../lib/uploadLimits'
 import Button from '../../components/ui/Button'
 import Modal from '../../components/ui/Modal'
 import Pagination from '../../components/ui/Pagination'
@@ -407,8 +408,8 @@ export default function UsersPage({ embedded = false }) {
           accept="image/jpeg,image/png,image/webp"
           onChange={(e) => {
             const file = e.target.files?.[0] || null
-            if (file && file.size > 40 * 1024 * 1024) {
-              toast.error('Photo must be 40 MB or smaller.')
+            if (file && !isWithinUploadLimit(file)) {
+              toast.error(uploadTooLargeMessage('Photo'))
               e.target.value = ''
               setPhotoFile(null)
               return

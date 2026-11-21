@@ -1,11 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { isWithinUploadLimit, uploadTooLargeMessage } from '../../lib/uploadLimits'
 import Modal from './Modal'
 import Button from './Button'
 import './ui.css'
 
 function fileFromBlob(blob, name) {
   return new File([blob], name, { type: blob.type || 'image/jpeg' })
+}
+
+function acceptFile(file, onChange) {
+  if (!file) {
+    onChange?.(null)
+    return
+  }
+  if (!isWithinUploadLimit(file)) {
+    toast.error(uploadTooLargeMessage('Image'))
+    return
+  }
+  onChange?.(file)
 }
 
 export default function ImageCaptureField({
@@ -15,6 +28,8 @@ export default function ImageCaptureField({
   required = false,
   onChange,
   filenamePrefix = 'photo',
+  cameraOnly = false,
+  facingMode = 'environment',
 }) {
   const [cameraOpen, setCameraOpen] = useState(false)
   const [ready, setReady] = useState(false)
@@ -55,7 +70,7 @@ export default function ImageCaptureField({
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
-          facingMode: { ideal: 'environment' },
+          facingMode: { ideal: facingMode },
           width: { ideal: 1280 },
           height: { ideal: 720 },
         },
@@ -67,7 +82,11 @@ export default function ImageCaptureField({
       }
       setReady(true)
     } catch {
-      toast.error('Could not open camera. Allow camera permission or use gallery.')
+      toast.error(
+        cameraOnly
+          ? 'Could not open camera. Allow camera permission and try again.'
+          : 'Could not open camera. Allow camera permission or use gallery.'
+      )
       closeCamera()
     } finally {
       setStarting(false)
@@ -91,6 +110,10 @@ export default function ImageCaptureField({
           return
         }
         const file = fileFromBlob(blob, `${filenamePrefix}-${Date.now()}.jpg`)
+        if (!isWithinUploadLimit(file)) {
+          toast.error(uploadTooLargeMessage('Image'))
+          return
+        }
         onChange?.(file)
         closeCamera()
         toast.success('Photo added')
@@ -104,19 +127,33 @@ export default function ImageCaptureField({
     <div className="ui-field image-capture-field">
       <label htmlFor={id}>{label}</label>
       <div className="image-capture-row">
-        <input
-          ref={fileRef}
-          id={id}
-          className="ui-input"
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          capture="environment"
-          required={required && !value}
-          onChange={(e) => onChange?.(e.target.files?.[0] || null)}
-        />
-        <Button type="button" variant="secondary" onClick={openCamera}>
-          Take photo
-        </Button>
+        {cameraOnly ? (
+          <Button id={id} type="button" variant="secondary" onClick={openCamera}>
+            {value ? 'Retake photo' : 'Take photo'}
+          </Button>
+        ) : (
+          <>
+            <input
+              ref={fileRef}
+              id={id}
+              className="ui-input"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              capture="environment"
+              required={required && !value}
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null
+                acceptFile(file, onChange)
+                if (file && !isWithinUploadLimit(file) && fileRef.current) {
+                  fileRef.current.value = ''
+                }
+              }}
+            />
+            <Button type="button" variant="secondary" onClick={openCamera}>
+              Camera
+            </Button>
+          </>
+        )}
       </div>
       {value ? (
         <div className="image-capture-preview">

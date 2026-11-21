@@ -118,12 +118,13 @@ class AuthController extends Controller
             'date_of_birth' => ['nullable', 'date'],
             'address' => ['nullable', 'string', 'max:255'],
             'city' => ['nullable', 'string', 'max:100'],
-            'photo' => ['nullable', 'image', 'max:40960'],
+            'photo' => SecureUpload::imageRules(false),
             'remove_photo' => ['nullable', 'boolean'],
-        ], [
-            'photo.max' => 'Photo must be 40 MB or smaller.',
-            'photo.image' => 'Photo must be a JPG, PNG, or WEBP image.',
-        ]);
+        ], array_merge(SecureUpload::maxMessages([
+            'photo' => 'Photo',
+        ]), [
+            'photo.mimes' => 'Photo must be a JPG, PNG, or WEBP image.',
+        ]));
 
         $user->name = trim($data['name']);
         $user->father_name = isset($data['father_name']) ? trim((string) $data['father_name']) ?: null : $user->father_name;

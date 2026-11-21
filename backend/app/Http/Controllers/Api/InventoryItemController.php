@@ -42,9 +42,12 @@ class InventoryItemController extends Controller
         }
 
         $paginator = $query->paginate($perPage);
+        $canViewStockAlerts = in_array($request->user()->role?->slug, ['admin', 'inventory-manager'], true);
 
         return response()->json([
-            'data' => collect($paginator->items())->map(fn (InventoryItem $i) => $this->payload($i)),
+            'data' => collect($paginator->items())->map(
+                fn (InventoryItem $item) => $this->payload($item, $canViewStockAlerts)
+            ),
             'meta' => [
                 'current_page' => $paginator->currentPage(),
                 'last_page' => $paginator->lastPage(),
@@ -62,12 +65,19 @@ class InventoryItemController extends Controller
             'category' => ['nullable', 'string', 'max:60'],
             'unit' => ['nullable', 'string', 'max:30'],
             'stock_qty' => ['nullable', 'numeric', 'min:0'],
-            'reorder_level' => ['nullable', 'numeric', 'min:0'],
             'unit_cost' => ['nullable', 'numeric', 'min:0'],
             'supplier' => ['nullable', 'string', 'max:150'],
             'status' => ['nullable', Rule::in(['active', 'inactive'])],
-            'bill_image' => ['nullable', 'file', 'max:5120', 'mimes:jpg,jpeg,png,webp,pdf'],
-        ]);
+            'bill_image' => SecureUpload::imageRules(false, true),
+        ], SecureUpload::maxMessages([
+            'bill_image' => 'Bill image',
+        ]));
+
+        $unit = $data['unit'] ?? 'unit';
+        $openingStock = (float) ($data['stock_qty'] ?? 0);
+        if (InventoryItem::isCountUnit($unit) && floor($openingStock) !== $openingStock) {
+            return response()->json(['message' => "Use whole numbers for {$unit}."], 422);
+        }
 
         $billPath = null;
         if ($request->hasFile('bill_image')) {
@@ -77,13 +87,15 @@ class InventoryItemController extends Controller
         $sync = ['beds_added' => 0, 'beds_removed' => 0];
 
         $item = DB::transaction(function () use ($request, $data, $billPath, &$sync) {
+            $category = InventoryItem::normalizeCategory($data['category'] ?? 'general');
             $item = InventoryItem::query()->create([
                 'item_code' => $this->nextCode(),
                 'name' => $data['name'],
-                'category' => InventoryItem::normalizeCategory($data['category'] ?? 'general'),
+                'category' => $category,
                 'unit' => $data['unit'] ?? 'unit',
                 'stock_qty' => $data['stock_qty'] ?? 0,
-                'reorder_level' => $data['reorder_level'] ?? 10,
+                'reorder_level' => InventoryItem::DEFAULT_REORDER_LEVEL,
+                'track_reorder' => true,
                 'unit_cost' => $data['unit_cost'] ?? 0,
                 'supplier' => $data['supplier'] ?? null,
                 'bill_image_path' => $billPath,
@@ -106,7 +118,10 @@ class InventoryItemController extends Controller
 
         return response()->json([
             'message' => $message,
-            'data' => $this->payload($item),
+            'data' => $this->payload(
+                $item,
+                in_array($request->user()->role?->slug, ['admin', 'inventory-manager'], true)
+            ),
             'sync' => $sync,
         ], 201);
     }
@@ -117,12 +132,13 @@ class InventoryItemController extends Controller
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'category' => ['nullable', 'string', 'max:60'],
             'unit' => ['nullable', 'string', 'max:30'],
-            'reorder_level' => ['nullable', 'numeric', 'min:0'],
             'unit_cost' => ['nullable', 'numeric', 'min:0'],
             'supplier' => ['nullable', 'string', 'max:150'],
             'status' => ['nullable', Rule::in(['active', 'inactive'])],
-            'bill_image' => ['nullable', 'file', 'max:5120', 'mimes:jpg,jpeg,png,webp,pdf'],
-        ]);
+            'bill_image' => SecureUpload::imageRules(false, true),
+        ], SecureUpload::maxMessages([
+            'bill_image' => 'Bill image',
+        ]));
 
         if ($request->hasFile('bill_image')) {
             $data['bill_image_path'] = SecureUpload::storeBillImage($request->file('bill_image'), 'inventory-bills');
@@ -137,13 +153,16 @@ class InventoryItemController extends Controller
 
         return response()->json([
             'message' => 'Inventory item updated',
-            'data' => $this->payload($inventoryItem->fresh()->load('creator:id,name,staff_code')),
+            'data' => $this->payload(
+                $inventoryItem->fresh()->load('creator:id,name,staff_code'),
+                in_array($request->user()->role?->slug, ['admin', 'inventory-manager'], true)
+            ),
         ]);
     }
 
-    private function payload(InventoryItem $item): array
+    private function payload(InventoryItem $item, bool $canViewStockAlerts = false): array
     {
-        return [
+        $payload = [
             'id' => $item->id,
             'item_code' => $item->item_code,
             'name' => $item->name,
@@ -152,14 +171,21 @@ class InventoryItemController extends Controller
             'unit' => $item->unit,
             'stock_qty' => $item->stock_qty,
             'reorder_level' => $item->reorder_level,
+            'track_reorder' => (bool) $item->track_reorder,
             'unit_cost' => $item->unit_cost,
             'supplier' => $item->supplier,
             'bill_image_url' => SecureUpload::url($item->bill_image_path),
-            'low_stock' => $item->isLowStock(),
             'status' => $item->status,
             'recorded_by' => $item->creator?->name,
             'recorded_by_id' => $item->created_by,
         ];
+
+        if ($canViewStockAlerts) {
+            $payload['stock_status'] = $item->stockStatusLabel();
+            $payload['low_stock'] = $item->isLowStock();
+        }
+
+        return $payload;
     }
 
     private function categoryOptions(): array

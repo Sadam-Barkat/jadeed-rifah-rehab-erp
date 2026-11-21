@@ -97,15 +97,16 @@ class UserController extends Controller
             'city' => ['nullable', 'string', 'max:100'],
             'qualification' => ['nullable', 'string', 'max:150'],
             'joined_on' => ['nullable', 'date'],
-            'photo' => ['nullable', 'image', 'max:40960'],
+            'photo' => SecureUpload::imageRules(false),
             'password' => ['nullable', 'string', 'min:8'],
             'role_id' => ['required', 'exists:roles,id'],
             'is_active' => ['nullable', 'boolean'],
             'generate_password' => ['nullable', 'boolean'],
-        ], [
-            'photo.max' => 'Photo must be 40 MB or smaller.',
-            'photo.image' => 'Photo must be a JPG, PNG, or WEBP image.',
-        ]);
+        ], array_merge(SecureUpload::maxMessages([
+            'photo' => 'Photo',
+        ]), [
+            'photo.mimes' => 'Photo must be a JPG, PNG, or WEBP image.',
+        ]));
 
         $role = Role::query()->findOrFail($data['role_id']);
         if (! in_array($role->slug, self::STAFF_ROLE_SLUGS, true)) {
@@ -177,16 +178,17 @@ class UserController extends Controller
             'city' => ['nullable', 'string', 'max:100'],
             'qualification' => ['nullable', 'string', 'max:150'],
             'joined_on' => ['nullable', 'date'],
-            'photo' => ['nullable', 'image', 'max:40960'],
+            'photo' => SecureUpload::imageRules(false),
             'password' => ['nullable', 'string', 'min:8'],
             'role_id' => ['sometimes', 'required', 'exists:roles,id'],
             'is_active' => ['nullable', 'boolean'],
             'must_change_password' => ['nullable', 'boolean'],
             'reset_password' => ['nullable', 'boolean'],
-        ], [
-            'photo.max' => 'Photo must be 40 MB or smaller.',
-            'photo.image' => 'Photo must be a JPG, PNG, or WEBP image.',
-        ]);
+        ], array_merge(SecureUpload::maxMessages([
+            'photo' => 'Photo',
+        ]), [
+            'photo.mimes' => 'Photo must be a JPG, PNG, or WEBP image.',
+        ]));
 
         if ($request->user()->id === $user->id && $request->has('is_active') && ! $request->boolean('is_active')) {
             return response()->json(['message' => 'You cannot deactivate your own account.'], 422);

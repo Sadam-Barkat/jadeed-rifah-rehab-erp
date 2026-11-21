@@ -13,6 +13,8 @@ class PatientGuardian extends Model
         'relation',
         'phone',
         'cnic',
+        'cnic_front_path',
+        'cnic_back_path',
         'address',
         'is_primary',
         'is_emergency',

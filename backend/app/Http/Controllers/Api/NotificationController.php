@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AppNotification;
+use App\Models\InventoryMovement;
 use App\Services\AppNotifier;
 use App\Support\SecureUpload;
 use Illuminate\Http\JsonResponse;
@@ -49,6 +50,53 @@ class NotificationController extends Controller
             ->count();
 
         return response()->json(['unread_count' => $count]);
+    }
+
+    public function stockReceipt(Request $request, InventoryMovement $movement): JsonResponse
+    {
+        $link = '/app/inventory-receipts/'.$movement->id;
+        $hasNotification = AppNotification::query()
+            ->where('user_id', $request->user()->id)
+            ->where('type', 'inventory.stock_received')
+            ->where('link', $link)
+            ->exists();
+
+        if (! $hasNotification || $movement->type !== 'in') {
+            return response()->json(['message' => 'Not found'], 404);
+        }
+
+        $movement->load([
+            'item:id,item_code,name,unit,category',
+            'creator:id,name',
+        ]);
+        $extension = strtolower(pathinfo((string) $movement->bill_image_path, PATHINFO_EXTENSION));
+        $billType = $extension === 'pdf'
+            ? 'application/pdf'
+            : (in_array($extension, ['jpg', 'jpeg', 'png', 'webp'], true) ? 'image/'.$extension : null);
+        if ($extension === 'jpg') {
+            $billType = 'image/jpeg';
+        }
+
+        return response()->json([
+            'data' => [
+                'movement_code' => $movement->movement_code,
+                'item' => [
+                    'item_code' => $movement->item?->item_code,
+                    'name' => $movement->item?->name,
+                    'category' => $movement->item?->category,
+                ],
+                'quantity' => $movement->quantity,
+                'unit' => $movement->unit ?: ($movement->item?->unit ?: 'unit'),
+                'unit_cost' => $movement->unit_cost,
+                'total_cost' => round((float) $movement->quantity * (float) $movement->unit_cost, 2),
+                'supplier' => $movement->issued_to,
+                'received_at' => $movement->moved_at?->toDateTimeString(),
+                'recorded_by' => $movement->creator?->name,
+                'notes' => $movement->notes,
+                'bill_image_url' => SecureUpload::url($movement->bill_image_path),
+                'bill_image_type' => $billType,
+            ],
+        ]);
     }
 
     public function markRead(Request $request, AppNotification $notification): JsonResponse
@@ -130,13 +178,20 @@ class NotificationController extends Controller
         $patientId = (int) ($meta['patient_id'] ?? 0);
         $link = trim((string) $link);
 
-        // Admit requests → admission page with patient preselected.
-        if ($patientId > 0 && (str_contains($link, 'management') || str_contains($link, 'admission') || $link === '')) {
+        if ($patientId > 0) {
             if (str_contains($link, 'billing') || str_contains($link, 'fees=create')) {
-                return '/app/billing?tab=fees&fees=create';
+                return '/app/billing?tab=fees&fees=create&patient_id='.$patientId;
             }
 
-            return '/app/admission?patient_id='.$patientId;
+            // Admit request → patient detail (Admit button).
+            if (
+                $link === ''
+                || str_contains($link, 'management')
+                || str_contains($link, 'admission')
+                || str_contains($link, '/patients/')
+            ) {
+                return '/app/patients/'.$patientId;
+            }
         }
 
         if ($link === '') {
@@ -149,7 +204,9 @@ class NotificationController extends Controller
         }
 
         if ($link === '/app/billing' || str_ends_with($link, '/billing')) {
-            return '/app/billing?tab=fees&fees=create';
+            $suffix = $patientId > 0 ? '&patient_id='.$patientId : '';
+
+            return '/app/billing?tab=fees&fees=create'.$suffix;
         }
 
         return $link;

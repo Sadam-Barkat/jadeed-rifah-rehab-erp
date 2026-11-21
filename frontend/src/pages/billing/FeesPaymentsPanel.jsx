@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
 import { formatPkr } from '../../lib/format'
+import { isWithinUploadLimit, uploadTooLargeMessage } from '../../lib/uploadLimits'
 import Button from '../../components/ui/Button'
 import Modal from '../../components/ui/Modal'
 import Pagination from '../../components/ui/Pagination'
@@ -111,6 +112,7 @@ export default function FeesPaymentsPanel() {
   const [searchParams, setSearchParams] = useSearchParams()
   const rawFees = searchParams.get('fees') || 'create'
   const feesTab = rawFees === 'collect' ? 'pending' : VALID_FEES.has(rawFees) ? rawFees : 'create'
+  const focusPatientId = searchParams.get('patient_id') || ''
 
   function setFeesTab(id) {
     const next = new URLSearchParams(searchParams)
@@ -199,6 +201,14 @@ export default function FeesPaymentsPanel() {
   useEffect(() => {
     loadTab()
   }, [feesTab, debouncedSearch])
+
+  useEffect(() => {
+    if (feesTab !== 'create' || !focusPatientId || needing.length === 0) return
+    const match = needing.find((a) => String(a.patient?.id) === String(focusPatientId))
+    if (match) {
+      setCreateForm((prev) => ({ ...prev, admission_id: String(match.id) }))
+    }
+  }, [feesTab, focusPatientId, needing])
 
   const selectedAdmission = useMemo(
     () => needing.find((a) => String(a.id) === String(createForm.admission_id)),
@@ -337,8 +347,8 @@ export default function FeesPaymentsPanel() {
       toast.error('Payment proof image is required')
       return
     }
-    if (paymentForm.proof_image.size > 40 * 1024 * 1024) {
-      toast.error('Payment proof must be 40 MB or smaller.')
+    if (!isWithinUploadLimit(paymentForm.proof_image)) {
+      toast.error(uploadTooLargeMessage('Payment proof'))
       return
     }
     setSaving(true)
@@ -797,8 +807,8 @@ export default function FeesPaymentsPanel() {
               required
               onChange={(e) => {
                 const file = e.target.files?.[0] || null
-                if (file && file.size > 40 * 1024 * 1024) {
-                  toast.error('Payment proof must be 40 MB or smaller.')
+                if (file && !isWithinUploadLimit(file)) {
+                  toast.error(uploadTooLargeMessage('Payment proof'))
                   e.target.value = ''
                   setPay('proof_image', null)
                   return

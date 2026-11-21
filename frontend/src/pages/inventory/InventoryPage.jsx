@@ -1,16 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Navigate, useSearchParams } from 'react-router-dom'
+import { ChevronDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
-import { formatPkr } from '../../lib/format'
+import { isWithinUploadLimit, uploadTooLargeMessage } from '../../lib/uploadLimits'
 import { useAuth } from '../../context/AuthContext'
 import Button from '../../components/ui/Button'
+import Modal from '../../components/ui/Modal'
 import { SkeletonCards } from '../../components/ui/Skeleton'
 import { homePathForUser } from '../../lib/roleHomes'
 import '../pages.css'
 
 const PURPOSES = [
-  { value: 'purchase', label: 'Purchase' },
   { value: 'kitchen_use', label: 'Kitchen use' },
   { value: 'cleaning', label: 'Cleaning' },
   { value: 'patient_care', label: 'Patient care' },
@@ -52,12 +53,7 @@ const emptyItem = {
   name: '',
   category: 'kitchen',
   category_custom: '',
-  unit: 'pcs',
-  stock_qty: '',
-  reorder_level: '10',
-  unit_cost: '',
-  supplier: '',
-  bill_image: null,
+  unit: '',
 }
 
 const emptyMove = {
@@ -66,156 +62,251 @@ const emptyMove = {
   quantity: '',
   purpose: 'kitchen_use',
   department: 'kitchen',
-  issued_to: '',
-  used_for: '',
-  reference: '',
   notes: '',
   bed_id: '',
   bed_action: 'maintenance',
 }
 
 function labelOf(list, value) {
-  return list.find((x) => x.value === value)?.label || value || '—'
+  return list.find((item) => item.value === value)?.label || value || '—'
+}
+
+function isCountUnit(unit) {
+  return /^(pc|pcs|piece|pieces|unit|units|count)$/i.test(String(unit || '').trim())
+}
+
+function localDateValue() {
+  const date = new Date()
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+}
+
+function InventoryDropdown({ id, value, options, onChange, placeholder, disabled = false }) {
+  const rootRef = useRef(null)
+  const triggerRef = useRef(null)
+  const [open, setOpen] = useState(false)
+  const [maxHeight, setMaxHeight] = useState(280)
+  const selectedOption = options.find((option) => String(option.value) === String(value))
+
+  useEffect(() => {
+    if (!open) return undefined
+
+    function updateMaxHeight() {
+      const rect = triggerRef.current?.getBoundingClientRect()
+      if (!rect) return
+      setMaxHeight(Math.max(100, Math.min(280, window.innerHeight - rect.bottom - 12)))
+    }
+
+    function closeOutside(event) {
+      if (!rootRef.current?.contains(event.target)) setOpen(false)
+    }
+
+    updateMaxHeight()
+    document.addEventListener('mousedown', closeOutside)
+    window.addEventListener('resize', updateMaxHeight)
+    window.addEventListener('scroll', updateMaxHeight, true)
+
+    return () => {
+      document.removeEventListener('mousedown', closeOutside)
+      window.removeEventListener('resize', updateMaxHeight)
+      window.removeEventListener('scroll', updateMaxHeight, true)
+    }
+  }, [open])
+
+  function toggle() {
+    if (open) {
+      setOpen(false)
+      return
+    }
+
+    const rect = triggerRef.current?.getBoundingClientRect()
+    if (rect && window.innerHeight - rect.bottom < 180) {
+      triggerRef.current.scrollIntoView({ block: 'center', behavior: 'auto' })
+    }
+    setOpen(true)
+  }
+
+  function handleOptionKeyDown(event) {
+    if (event.key === 'Escape') {
+      setOpen(false)
+      triggerRef.current?.focus()
+      return
+    }
+
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+
+    event.preventDefault()
+    const optionButtons = Array.from(
+      rootRef.current?.querySelectorAll('.inventory-dropdown-option:not(:disabled)') || []
+    )
+    if (!optionButtons.length) return
+
+    const currentIndex = optionButtons.indexOf(document.activeElement)
+    const nextIndex = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? optionButtons.length - 1
+        : (currentIndex + (event.key === 'ArrowDown' ? 1 : -1) + optionButtons.length) % optionButtons.length
+    optionButtons[nextIndex]?.focus()
+  }
+
+  return (
+    <div className={`inventory-dropdown${open ? ' is-open' : ''}`} ref={rootRef}>
+      <button
+        ref={triggerRef}
+        id={id}
+        type="button"
+        className="ui-select inventory-dropdown-trigger"
+        role="combobox"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={`${id}-options`}
+        aria-required="true"
+        disabled={disabled}
+        onClick={toggle}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') setOpen(false)
+          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault()
+            if (!open) {
+              toggle()
+              return
+            }
+            rootRef.current?.querySelector('.inventory-dropdown-option:not(:disabled)')?.focus()
+          }
+        }}
+      >
+        <span>{selectedOption?.label || placeholder}</span>
+        <ChevronDown size={16} aria-hidden="true" />
+      </button>
+      {open ? (
+        <div
+          id={`${id}-options`}
+          className="inventory-dropdown-options"
+          role="listbox"
+          style={{ maxHeight }}
+        >
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className="inventory-dropdown-option"
+              role="option"
+              aria-selected={String(option.value) === String(value)}
+              disabled={option.disabled}
+              onKeyDown={handleOptionKeyDown}
+              onClick={() => {
+                onChange(String(option.value))
+                setOpen(false)
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 export default function InventoryPage() {
   const { user } = useAuth()
+  const [searchParams] = useSearchParams()
   const canUseInventory = (user?.modules || []).includes('inventory')
+  const requestedTab = searchParams.get('tab') || 'use'
+  const activeTab = ['use', 'receive', 'levels'].includes(requestedTab) ? requestedTab : 'use'
+  const canViewStockAlerts = ['admin', 'inventory-manager'].includes(user?.role_slug)
   const [loading, setLoading] = useState(true)
   const [savingItem, setSavingItem] = useState(false)
   const [savingMove, setSavingMove] = useState(false)
+  const [savingStock, setSavingStock] = useState(false)
   const [items, setItems] = useState([])
   const [categories, setCategories] = useState(CATEGORIES)
-  const [movements, setMovements] = useState([])
   const [itemForm, setItemForm] = useState(emptyItem)
-  const [moveForm, setMoveForm] = useState(() => ({
-    ...emptyMove,
-    issued_to: '',
-  }))
+  const [showNewItemModal, setShowNewItemModal] = useState(false)
+  const [moveForm, setMoveForm] = useState(emptyMove)
   const [itemSearch, setItemSearch] = useState('')
-  const [moveType, setMoveType] = useState('')
-  const [movePurpose, setMovePurpose] = useState('')
-  const [moveDepartment, setMoveDepartment] = useState('')
-  const [moveStaff, setMoveStaff] = useState('')
-  const [moveQuery, setMoveQuery] = useState('')
-  const [debouncedMoveQuery, setDebouncedMoveQuery] = useState('')
-  const [staff, setStaff] = useState([])
-  const [moveBill, setMoveBill] = useState(null)
+  const [stockBill, setStockBill] = useState(null)
+  const stockBillInputRef = useRef(null)
   const [beds, setBeds] = useState([])
+  const [stockForm, setStockForm] = useState({
+    inventory_item_id: '',
+    quantity: '',
+    supplier: '',
+    unit_cost: '',
+    received_at: localDateValue(),
+    notes: '',
+  })
+
+  const selectedItem = useMemo(
+    () => items.find((item) => String(item.id) === String(moveForm.inventory_item_id)),
+    [items, moveForm.inventory_item_id]
+  )
+  const selectedStockItem = useMemo(
+    () => items.find((item) => String(item.id) === String(stockForm.inventory_item_id)),
+    [items, stockForm.inventory_item_id]
+  )
+  const selectedBed = useMemo(
+    () => beds.find((bed) => String(bed.id) === String(moveForm.bed_id)),
+    [beds, moveForm.bed_id]
+  )
+  const isBedsItem = selectedItem?.category === 'beds'
+  const bedsActionMode = isBedsItem
+  const quantityStep = isCountUnit(selectedItem?.unit) ? '1' : '0.01'
+  const stockOutError = selectedItem && (
+    Number(selectedItem.stock_qty) <= 0
+      ? `${selectedItem.name} is out of stock.`
+      : Number(moveForm.quantity) > Number(selectedItem.stock_qty)
+        ? `Insufficient stock. Available: ${selectedItem.stock_qty} ${selectedItem.unit}.`
+        : ''
+  )
+
   function setItem(key, value) {
-    setItemForm((prev) => ({ ...prev, [key]: value }))
+    setItemForm((previous) => ({ ...previous, [key]: value }))
   }
 
   function setMove(key, value) {
-    setMoveForm((prev) => ({ ...prev, [key]: value }))
+    setMoveForm((previous) => ({ ...previous, [key]: value }))
   }
 
-
-  const selectedItem = useMemo(
-    () => items.find((i) => String(i.id) === String(moveForm.inventory_item_id)),
-    [items, moveForm.inventory_item_id]
-  )
-  const isBedsItem = selectedItem?.category === 'beds'
-  const selectedBed = useMemo(
-    () => beds.find((b) => String(b.id) === String(moveForm.bed_id)),
-    [beds, moveForm.bed_id]
-  )
-
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedMoveQuery(moveQuery.trim()), 350)
-    return () => clearTimeout(t)
-  }, [moveQuery])
-
-
+  function clearStockBill() {
+    setStockBill(null)
+    if (stockBillInputRef.current) stockBillInputRef.current.value = ''
+  }
 
   async function loadItems() {
-    const itemRes = await api('/inventory-items?status=active&per_page=100')
-    setItems(itemRes.data || [])
-    if (Array.isArray(itemRes.meta?.categories) && itemRes.meta.categories.length) {
-      setCategories(itemRes.meta.categories)
+    const firstPage = await api('/inventory-items?status=active&per_page=100&page=1')
+    const pageCount = Number(firstPage.meta?.last_page || 1)
+    const otherPages = await Promise.all(
+      Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) =>
+        api(`/inventory-items?status=active&per_page=100&page=${index + 2}`)
+      )
+    )
+    setItems([...(firstPage.data || []), ...otherPages.flatMap((page) => page.data || [])])
+    if (Array.isArray(firstPage.meta?.categories) && firstPage.meta.categories.length) {
+      setCategories(firstPage.meta.categories)
     }
   }
 
   async function loadBeds() {
-    const res = await api('/inventory-beds')
-    setBeds(res.data || [])
-  }
-
-  async function loadMovements() {
-    const q = new URLSearchParams({ per_page: '50' })
-    if (moveType) q.set('type', moveType)
-    if (movePurpose) q.set('purpose', movePurpose)
-    if (moveDepartment) q.set('department', moveDepartment)
-    if (moveStaff) q.set('created_by', moveStaff)
-    if (debouncedMoveQuery) q.set('q', debouncedMoveQuery)
-    const moveRes = await api(`/inventory-movements?${q}`)
-    setMovements(moveRes.data || [])
-    if (moveRes.meta?.staff) setStaff(moveRes.meta.staff)
-  }
-
-
-  async function load() {
-    setLoading(true)
-    try {
-      await Promise.all([loadItems(), loadMovements(), loadBeds()])
-    } catch (err) {
-      toast.error(err.message || 'Failed to load inventory')
-    } finally {
-      setLoading(false)
-    }
+    const response = await api('/inventory-beds')
+    setBeds(response.data || [])
   }
 
   useEffect(() => {
     if (!canUseInventory) return
-    load()
+
+    Promise.all([loadItems(), loadBeds()])
+      .catch((error) => toast.error(error.message || 'Failed to load inventory'))
+      .finally(() => setLoading(false))
   }, [canUseInventory])
 
-  useEffect(() => {
-    if (!user?.name) return
-    setMoveForm((prev) => ({
-      ...prev,
-      issued_to: prev.issued_to || user.name,
-    }))
-  }, [user?.name])
-
-  useEffect(() => {
-    if (!canUseInventory || loading) return
-    loadMovements().catch((err) => toast.error(err.message || 'Failed to filter movements'))
-  }, [moveType, movePurpose, moveDepartment, moveStaff, debouncedMoveQuery])
-
-
-
-  useEffect(() => {
-    if (isBedsItem) {
-      if (moveForm.type === 'adjust') setMove('type', 'out')
-      if (moveForm.type === 'in' && moveForm.purpose !== 'purchase') setMove('purpose', 'purchase')
-      if (moveForm.type === 'out' && !['maintenance', 'waste'].includes(moveForm.purpose)) {
-        setMove('purpose', moveForm.bed_action === 'discard' ? 'waste' : 'maintenance')
-      }
-      return
-    }
-    if (moveForm.type === 'in' && moveForm.purpose === 'kitchen_use') {
-      setMove('purpose', 'purchase')
-    }
-    if (moveForm.type === 'out' && moveForm.purpose === 'purchase') {
-      setMove('purpose', 'kitchen_use')
-    }
-  }, [moveForm.type, isBedsItem])
-
-  useEffect(() => {
-    if (!isBedsItem || moveForm.type !== 'out') return
-    setMove('purpose', moveForm.bed_action === 'discard' ? 'waste' : 'maintenance')
-    setMove('department', 'maintenance')
-  }, [moveForm.bed_action, isBedsItem, moveForm.type])
-
   const filteredItems = useMemo(() => {
-    const q = itemSearch.trim().toLowerCase()
-    if (!q) return items
-    return items.filter(
-      (i) =>
-        String(i.name || '').toLowerCase().includes(q) ||
-        String(i.item_code || '').toLowerCase().includes(q) ||
-        String(i.category || '').toLowerCase().includes(q)
+    const query = itemSearch.trim().toLowerCase()
+    if (!query) return items
+    return items.filter((item) =>
+      [item.name, item.item_code, item.category].some((value) =>
+        String(value || '').toLowerCase().includes(query)
+      )
     )
   }, [items, itemSearch])
 
@@ -223,497 +314,437 @@ export default function InventoryPage() {
     return <Navigate to={homePathForUser(user)} replace />
   }
 
-  async function handleAddItem(e) {
-    e.preventDefault()
+  async function handleAddItem(event) {
+    event.preventDefault()
     setSavingItem(true)
     try {
-      const category =
-        itemForm.category === '__new__'
-          ? (itemForm.category_custom || '').trim()
-          : itemForm.category
+      const category = itemForm.category === '__new__'
+        ? itemForm.category_custom.trim()
+        : itemForm.category
       if (!category) {
         toast.error('Category is required')
-        setSavingItem(false)
         return
       }
-      const fd = new FormData()
-      fd.append('name', itemForm.name)
-      fd.append('category', category)
-      fd.append('unit', itemForm.unit || 'unit')
-      fd.append('stock_qty', String(itemForm.stock_qty ? Number(itemForm.stock_qty) : 0))
-      fd.append('reorder_level', String(itemForm.reorder_level ? Number(itemForm.reorder_level) : 10))
-      fd.append('unit_cost', String(itemForm.unit_cost ? Number(itemForm.unit_cost) : 0))
-      if (itemForm.supplier) fd.append('supplier', itemForm.supplier)
-      if (itemForm.bill_image) fd.append('bill_image', itemForm.bill_image)
+      if (!itemForm.unit.trim()) {
+        toast.error('Unit is required')
+        return
+      }
 
-      const data = await api('/inventory-items', {
-        method: 'POST',
-        body: fd,
-      })
-      toast.success(data.message || `${data.data.item_code} added`)
+      const body = new FormData()
+      body.append('name', itemForm.name)
+      body.append('category', category)
+      body.append('unit', itemForm.unit.trim())
+
+      const response = await api('/inventory-items', { method: 'POST', body })
+      toast.success(response.message || `${response.data.item_code} added`)
       setItemForm(emptyItem)
-      await loadItems()
-    } catch (err) {
-      toast.error(err.message || 'Failed to add item')
+      setShowNewItemModal(false)
+      clearStockBill()
+      setStockForm((previous) => ({
+        ...previous,
+        inventory_item_id: String(response.data.id),
+        quantity: '',
+        supplier: '',
+        unit_cost: '',
+        received_at: localDateValue(),
+        notes: '',
+      }))
+      await Promise.all([loadItems(), loadBeds()])
+    } catch (error) {
+      toast.error(error.message || 'Failed to add item')
     } finally {
       setSavingItem(false)
     }
   }
 
-  async function handleMove(e) {
-    e.preventDefault()
-    if (isBedsItem && moveForm.type === 'out') {
-      if (!moveForm.bed_id) {
-        toast.error('Select a bed')
-        return
-      }
-      if (selectedBed?.in_use) {
-        toast.error('Bed is in use. Discharge the patient first.')
-        return
-      }
+  async function handleUseStock(event) {
+    event.preventDefault()
+    if (!selectedItem || Number(selectedItem.stock_qty) <= 0) {
+      toast.error(selectedItem ? `${selectedItem.name} is out of stock.` : 'Select an item')
+      return
     }
+    if (!isBedsItem && Number(moveForm.quantity) > Number(selectedItem.stock_qty)) {
+      toast.error(`Insufficient stock. Available: ${selectedItem.stock_qty} ${selectedItem.unit}.`)
+      return
+    }
+    if (isBedsItem && !moveForm.bed_id) {
+      toast.error('Select a bed')
+      return
+    }
+    if (isBedsItem && selectedBed?.in_use) {
+      toast.error('Bed is in use. Discharge the patient first.')
+      return
+    }
+
     setSavingMove(true)
     try {
-      const fd = new FormData()
-      fd.append('inventory_item_id', String(Number(moveForm.inventory_item_id)))
-      fd.append('type', moveForm.type)
-
-      if (isBedsItem && moveForm.type === 'out') {
-        fd.append('bed_id', String(Number(moveForm.bed_id)))
-        fd.append('bed_action', moveForm.bed_action)
-        fd.append('quantity', '1')
-        fd.append('purpose', moveForm.bed_action === 'discard' ? 'waste' : 'maintenance')
-        fd.append('department', 'maintenance')
-        fd.append('used_for', moveForm.bed_action === 'discard' ? 'Bed total discard' : 'Bed maintenance')
+      const body = new FormData()
+      body.append('inventory_item_id', String(selectedItem.id))
+      body.append('type', 'out')
+      if (isBedsItem) {
+        body.append('bed_id', String(Number(moveForm.bed_id)))
+        body.append('bed_action', moveForm.bed_action)
+        body.append('quantity', '1')
+        body.append('purpose', moveForm.bed_action === 'discard' ? 'waste' : 'maintenance')
+        body.append('department', 'maintenance')
       } else {
-        fd.append('quantity', String(Number(moveForm.quantity)))
-        fd.append('purpose', moveForm.purpose)
-        if (moveForm.department) fd.append('department', moveForm.department)
-        if (moveForm.used_for) fd.append('used_for', moveForm.used_for)
+        body.append('quantity', String(Number(moveForm.quantity)))
+        body.append('purpose', moveForm.purpose)
+        body.append('department', moveForm.department)
       }
+      if (moveForm.notes.trim()) body.append('notes', moveForm.notes.trim())
 
-      const issuedTo = moveForm.type === 'out' ? (user?.name || moveForm.issued_to || '') : (moveForm.issued_to || '')
-      if (issuedTo) fd.append('issued_to', issuedTo)
-      if (moveForm.reference) fd.append('reference', moveForm.reference)
-      if (moveForm.notes) fd.append('notes', moveForm.notes)
-      if (moveBill && (moveForm.type === 'in' || moveForm.type === 'adjust')) {
-        fd.append('bill_image', moveBill)
-      }
-
-      const data = await api('/inventory-movements', {
-        method: 'POST',
-        body: fd,
-      })
-      toast.success(data.message || `${data.data.movement_code} recorded`)
-      setMoveForm({
-        ...emptyMove,
-        issued_to: user?.name || '',
-        type: isBedsItem ? 'in' : 'out',
-        purpose: isBedsItem ? 'purchase' : 'kitchen_use',
-        inventory_item_id: moveForm.inventory_item_id,
-      })
-      setMoveBill(null)
-      await Promise.all([loadItems(), loadMovements(), loadBeds()])
-    } catch (err) {
-      toast.error(err.message || 'Movement failed')
+      const response = await api('/inventory-movements', { method: 'POST', body })
+      toast.success(response.message || `${response.data.movement_code} recorded`)
+      setMoveForm(emptyMove)
+      await Promise.all([loadItems(), loadBeds()])
+    } catch (error) {
+      toast.error(error.message || 'Stock use failed')
     } finally {
       setSavingMove(false)
     }
   }
 
-  const isOut = moveForm.type === 'out'
-  const bedsActionMode = isBedsItem && isOut
+  async function handleReceiveStock(event) {
+    event.preventDefault()
+    if (!selectedStockItem) {
+      toast.error('Select an item')
+      return
+    }
+
+    setSavingStock(true)
+    try {
+      const body = new FormData()
+      body.append('inventory_item_id', String(selectedStockItem.id))
+      body.append('type', 'in')
+      body.append('quantity', String(Number(stockForm.quantity)))
+      body.append('purpose', 'purchase')
+      body.append('supplier', stockForm.supplier.trim())
+      body.append('unit_cost', String(Number(stockForm.unit_cost)))
+      if (stockForm.received_at) body.append('moved_at', `${stockForm.received_at} 12:00:00`)
+      if (stockForm.notes.trim()) body.append('notes', stockForm.notes.trim())
+      if (stockBill) body.append('bill_image', stockBill)
+
+      const response = await api('/inventory-movements', { method: 'POST', body })
+      toast.success(response.message || `${response.data.movement_code} received`)
+      setStockForm({
+        inventory_item_id: '',
+        quantity: '',
+        supplier: '',
+        unit_cost: '',
+        received_at: localDateValue(),
+        notes: '',
+      })
+      clearStockBill()
+      await Promise.all([loadItems(), loadBeds()])
+    } catch (error) {
+      toast.error(error.message || 'Failed to receive stock')
+    } finally {
+      setSavingStock(false)
+    }
+  }
 
   return (
     <div className="page print-page">
       <div className="page-header no-print">
         <div>
           <p className="eyebrow">Operations</p>
-          <h2>Inventory & Stock</h2>
+          <h2>Inventory &amp; Stock</h2>
         </div>
-        <div className="page-actions">
-          <Button type="button" variant="secondary" onClick={() => window.print()} disabled={loading}>
-            Print
-          </Button>
-        </div>
+        {activeTab === 'receive' ? (
+          <div className="page-actions no-print">
+            <Button type="button" variant="secondary" onClick={() => setShowNewItemModal(true)}>
+              Add new item
+            </Button>
+          </div>
+        ) : activeTab === 'levels' && canViewStockAlerts ? (
+          <div className="page-actions">
+            <Button type="button" variant="secondary" onClick={() => window.print()} disabled={loading}>
+              Print
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       {loading ? (
         <SkeletonCards count={3} />
       ) : (
         <>
-          <header className="print-dash-head">
-            <p className="print-dash-org">Jadeed Rifah Rehab &amp; Care Center</p>
-            <h2>Inventory — Stock list</h2>
-          </header>
-
-          <form className="panel form-grid no-print" onSubmit={handleAddItem}>
-            <div className="panel-head full">
-              <h3>Add item</h3>
-            </div>
-            <div className="ui-field">
-              <label htmlFor="name">Name</label>
-              <input id="name" className="ui-input" required value={itemForm.name} onChange={(e) => setItem('name', e.target.value)} />
-            </div>
-            <div className="ui-field">
-              <label htmlFor="category">Category</label>
-              <select id="category" className="ui-select" value={itemForm.category} onChange={(e) => setItem('category', e.target.value)}>
-                {categories.map((c) => (
-                  <option key={c.value} value={c.value}>{c.label}</option>
-                ))}
-                <option value="__new__">Add new…</option>
-              </select>
-            </div>
-            {itemForm.category === '__new__' ? (
-              <div className="ui-field">
-                <label htmlFor="category_custom">New category</label>
-                <input
-                  id="category_custom"
-                  className="ui-input"
-                  required
-                  value={itemForm.category_custom}
-                  onChange={(e) => setItem('category_custom', e.target.value)}
-                />
-              </div>
-            ) : null}
-            <div className="ui-field">
-              <label htmlFor="unit">Unit</label>
-              <input id="unit" className="ui-input" value={itemForm.unit} onChange={(e) => setItem('unit', e.target.value)} placeholder="pcs / kg / liter" />
-            </div>
-            <div className="ui-field">
-              <label htmlFor="stock_qty">Opening stock</label>
-              <input id="stock_qty" className="ui-input" type="number" min="0" step="0.01" value={itemForm.stock_qty} onChange={(e) => setItem('stock_qty', e.target.value)} />
-            </div>
-            <div className="ui-field">
-              <label htmlFor="unit_cost">Unit cost (PKR)</label>
-              <input id="unit_cost" className="ui-input" type="number" min="0" step="0.01" value={itemForm.unit_cost} onChange={(e) => setItem('unit_cost', e.target.value)} />
-            </div>
-            <div className="ui-field">
-              <label htmlFor="supplier">Supplier</label>
-              <input id="supplier" className="ui-input" value={itemForm.supplier} onChange={(e) => setItem('supplier', e.target.value)} />
-            </div>
-            <div className="ui-field">
-              <label htmlFor="bill_image">Bill image</label>
-              <input
-                id="bill_image"
-                className="ui-input"
-                type="file"
-                accept="image/jpeg,image/png,image/webp,application/pdf"
-                onChange={(e) => setItem('bill_image', e.target.files?.[0] || null)}
-              />
-            </div>
-            <div className="ui-field">
-              <label>Recorded by</label>
-              <input className="ui-input" value={user?.name || '—'} readOnly />
-            </div>
-            <div className="form-actions full">
-              <Button type="submit" disabled={savingItem}>{savingItem ? 'Saving...' : 'Add item'}</Button>
-            </div>
-          </form>
-
-          <form className="panel form-grid no-print" onSubmit={handleMove}>
-            <div className="panel-head full">
-              <h3>{isBedsItem ? 'Beds stock / maintenance' : 'Stock in / out'}</h3>
-            </div>
-            <div className="ui-field">
-              <label htmlFor="inventory_item_id">Item</label>
-              <select
-                id="inventory_item_id"
-                className="ui-select"
-                required
-                value={moveForm.inventory_item_id}
-                onChange={(e) => {
-                  const nextId = e.target.value
-                  const next = items.find((i) => String(i.id) === String(nextId))
-                  setMoveForm((prev) => ({
-                    ...prev,
-                    inventory_item_id: nextId,
-                    type: next?.category === 'beds' ? 'in' : prev.type === 'adjust' ? 'out' : prev.type,
-                    purpose: next?.category === 'beds' ? 'purchase' : prev.purpose,
-                    bed_id: '',
-                    bed_action: 'maintenance',
-                    quantity: next?.category === 'beds' ? '' : prev.quantity,
-                  }))
-                }}
-              >
-                <option value="">Select item</option>
-                {items.map((i) => (
-                  <option key={i.id} value={i.id}>
-                    {i.name} · {i.stock_qty} {i.unit}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="ui-field">
-              <label htmlFor="type">Type</label>
-              <select id="type" className="ui-select" value={moveForm.type} onChange={(e) => setMove('type', e.target.value)}>
-                <option value="in">Stock in</option>
-                {isBedsItem ? (
-                  <option value="out">Bed maintenance / discard</option>
-                ) : (
-                  <>
-                    <option value="out">Stock out</option>
-                    <option value="adjust">Adjust to qty</option>
-                  </>
-                )}
-              </select>
-            </div>
-            {bedsActionMode ? (
-              <>
-                <div className="ui-field">
-                  <label htmlFor="bed_id">Bed</label>
-                  <select
-                    id="bed_id"
-                    className="ui-select"
-                    required
-                    value={moveForm.bed_id}
-                    onChange={(e) => setMove('bed_id', e.target.value)}
-                  >
-                    <option value="">Select bed</option>
-                    {beds.map((b) => (
-                      <option key={b.id} value={b.id} disabled={b.in_use}>
-                        {b.label}
-                      </option>
-                    ))}
-                  </select>
+          {activeTab === 'receive' ? (
+            <>
+              <form className="panel form-grid no-print" onSubmit={handleReceiveStock}>
+                <div className="panel-head full">
+                  <h3>Receive stock</h3>
                 </div>
                 <div className="ui-field">
-                  <label htmlFor="bed_action">Action</label>
-                  <select
-                    id="bed_action"
-                    className="ui-select"
-                    required
-                    value={moveForm.bed_action}
-                    onChange={(e) => setMove('bed_action', e.target.value)}
-                  >
-                    <option value="maintenance">Maintenance</option>
-                    <option value="discard">Total discard</option>
-                  </select>
+                  <label htmlFor="receive_item">Item</label>
+                  <InventoryDropdown
+                    id="receive_item"
+                    value={stockForm.inventory_item_id}
+                    placeholder="Select an existing item"
+                    options={items.map((item) => ({
+                      value: item.id,
+                      label: `${item.name} · ${item.stock_qty} ${item.unit}`,
+                    }))}
+                    onChange={(value) => {
+                      const item = items.find((row) => String(row.id) === value)
+                      setStockForm((previous) => ({
+                        ...previous,
+                        inventory_item_id: value,
+                        quantity: '',
+                        unit_cost: '',
+                        supplier: item?.supplier || '',
+                        notes: '',
+                      }))
+                      clearStockBill()
+                    }}
+                  />
                 </div>
-              </>
-            ) : (
+                <div className="ui-field">
+                  <label htmlFor="receive_qty">Quantity ({selectedStockItem?.unit || 'unit'})</label>
+                  <input id="receive_qty" className="ui-input" type="number" min="0.01" step={isCountUnit(selectedStockItem?.unit) ? '1' : '0.01'} required value={stockForm.quantity} onChange={(event) => setStockForm((previous) => ({ ...previous, quantity: event.target.value }))} />
+                </div>
+                <div className="ui-field">
+                  <label htmlFor="receive_cost">Purchase price per {selectedStockItem?.unit || 'unit'} (PKR)</label>
+                  <input id="receive_cost" className="ui-input" type="number" min="0" step="0.01" required value={stockForm.unit_cost} onChange={(event) => setStockForm((previous) => ({ ...previous, unit_cost: event.target.value }))} />
+                </div>
+                <div className="ui-field">
+                  <label htmlFor="receive_supplier">Supplier / received from</label>
+                  <input id="receive_supplier" className="ui-input" value={stockForm.supplier} onChange={(event) => setStockForm((previous) => ({ ...previous, supplier: event.target.value }))} />
+                </div>
+                <div className="ui-field">
+                  <label htmlFor="receive_date">Received date</label>
+                  <input id="receive_date" className="ui-input" type="date" required value={stockForm.received_at} onChange={(event) => setStockForm((previous) => ({ ...previous, received_at: event.target.value }))} />
+                </div>
+                <div className="ui-field">
+                  <label htmlFor="receive_bill">Bill / receipt</label>
+                  <input
+                    id="receive_bill"
+                    ref={stockBillInputRef}
+                    className="ui-input"
+                    type="file"
+                    required
+                    accept="image/jpeg,image/png,image/webp,application/pdf"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0] || null
+                      if (file && !isWithinUploadLimit(file)) {
+                        toast.error(uploadTooLargeMessage('Bill image'))
+                        event.target.value = ''
+                        setStockBill(null)
+                        return
+                      }
+                      setStockBill(file)
+                    }}
+                  />
+                </div>
+                <div className="ui-field full">
+                  <label htmlFor="receive_notes">Notes</label>
+                  <input id="receive_notes" className="ui-input" value={stockForm.notes} onChange={(event) => setStockForm((previous) => ({ ...previous, notes: event.target.value }))} />
+                </div>
+                <div className="form-actions full">
+                  <Button type="submit" disabled={savingStock || !items.length}>{savingStock ? 'Saving…' : 'Receive stock'}</Button>
+                </div>
+              </form>
+            </>
+          ) : null}
+
+          {activeTab === 'use' ? (
+            <form className="panel form-grid no-print" onSubmit={handleUseStock}>
+              <div className="panel-head full"><h3>{isBedsItem ? 'Bed maintenance / discard' : 'Use stock'}</h3></div>
               <div className="ui-field">
-                <label htmlFor="quantity">Quantity {selectedItem?.unit ? `(${selectedItem.unit})` : ''}</label>
-                <input id="quantity" className="ui-input" type="number" min="0.01" step="0.01" required value={moveForm.quantity} onChange={(e) => setMove('quantity', e.target.value)} />
-              </div>
-            )}
-            {!bedsActionMode ? (
-              <div className="ui-field">
-                <label htmlFor="purpose">Purpose</label>
-                <select id="purpose" className="ui-select" required value={moveForm.purpose} onChange={(e) => setMove('purpose', e.target.value)}>
-                  {PURPOSES.map((p) => (
-                    <option key={p.value} value={p.value}>{p.label}</option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
-            {!bedsActionMode ? (
-              <div className="ui-field">
-                <label htmlFor="department">Department</label>
-                <select id="department" className="ui-select" required={isOut} value={moveForm.department} onChange={(e) => setMove('department', e.target.value)}>
-                  <option value="">Select department</option>
-                  {DEPARTMENTS.map((d) => (
-                    <option key={d.value} value={d.value}>{d.label}</option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
-            <div className="ui-field">
-              <label htmlFor="issued_to">{isOut ? 'Used by' : 'Received from'}</label>
-              <input
-                id="issued_to"
-                className="ui-input"
-                required={isOut}
-                value={isOut ? (user?.name || moveForm.issued_to) : moveForm.issued_to}
-                readOnly={isOut}
-                onChange={(e) => setMove('issued_to', e.target.value)}
-                placeholder={isOut ? 'Logged-in inventory staff' : 'Supplier / person'}
-              />
-            </div>
-            <div className="ui-field">
-              <label>Recorded by</label>
-              <input className="ui-input" value={user?.name || '—'} readOnly />
-            </div>
-            {!bedsActionMode ? (
-              <div className="ui-field">
-                <label htmlFor="used_for">{isOut ? 'Used for' : 'Received for'}</label>
-                <input
-                  id="used_for"
-                  className="ui-input"
-                  required={isOut}
-                  value={moveForm.used_for}
-                  onChange={(e) => setMove('used_for', e.target.value)}
-                  placeholder={isOut ? 'e.g. Lunch cooking / Ward cleaning' : 'e.g. Weekly purchase'}
+                <label htmlFor="use_item">Item</label>
+                <InventoryDropdown
+                  id="use_item"
+                  value={moveForm.inventory_item_id}
+                  placeholder="Select item"
+                  options={items.map((item) => ({
+                    value: item.id,
+                    label: `${item.name} · ${item.stock_qty} ${item.unit}`,
+                  }))}
+                  onChange={(value) => {
+                    const item = items.find((row) => String(row.id) === value)
+                    setMoveForm({
+                      ...emptyMove,
+                      inventory_item_id: value,
+                      purpose: item?.category === 'beds' ? 'maintenance' : 'kitchen_use',
+                      department: item?.category === 'beds' ? 'maintenance' : 'kitchen',
+                    })
+                    if (item && Number(item.stock_qty) <= 0) toast.error(`${item.name} is out of stock.`)
+                  }}
                 />
               </div>
-            ) : null}
-            <div className="ui-field">
-              <label htmlFor="reference">Reference</label>
-              <input id="reference" className="ui-input" value={moveForm.reference} onChange={(e) => setMove('reference', e.target.value)} placeholder="Bill / PO / slip no." />
-            </div>
-            {(moveForm.type === 'in' || moveForm.type === 'adjust') ? (
-              <div className="ui-field">
-                <label htmlFor="move_bill">Bill image</label>
-                <input
-                  id="move_bill"
-                  className="ui-input"
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,application/pdf"
-                  onChange={(e) => setMoveBill(e.target.files?.[0] || null)}
-                />
+              {bedsActionMode ? (
+                <>
+                  <div className="ui-field">
+                    <label htmlFor="use_bed">Bed</label>
+                    <InventoryDropdown
+                      id="use_bed"
+                      value={moveForm.bed_id}
+                      placeholder="Select bed"
+                      options={beds.map((bed) => ({
+                        value: bed.id,
+                        label: bed.label,
+                        disabled: bed.in_use,
+                      }))}
+                      onChange={(value) => setMove('bed_id', value)}
+                    />
+                  </div>
+                  <div className="ui-field">
+                    <label htmlFor="bed_action">Action</label>
+                    <InventoryDropdown
+                      id="bed_action"
+                      value={moveForm.bed_action}
+                      options={[
+                        { value: 'maintenance', label: 'Maintenance' },
+                        { value: 'discard', label: 'Total discard' },
+                      ]}
+                      onChange={(value) => setMove('bed_action', value)}
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="ui-field">
+                  <label htmlFor="use_quantity">Quantity ({selectedItem?.unit || 'unit'})</label>
+                  <input id="use_quantity" className="ui-input" type="number" min={quantityStep} max={selectedItem?.stock_qty} step={quantityStep} required value={moveForm.quantity} onChange={(event) => setMove('quantity', event.target.value)} />
+                  {stockOutError ? <span className="inventory-stock-error">{stockOutError}</span> : null}
+                </div>
+              )}
+              {!bedsActionMode ? (
+                <>
+                  <div className="ui-field">
+                    <label htmlFor="use_purpose">Purpose</label>
+                    <InventoryDropdown
+                      id="use_purpose"
+                      value={moveForm.purpose}
+                      options={PURPOSES}
+                      onChange={(value) => setMove('purpose', value)}
+                    />
+                  </div>
+                  <div className="ui-field">
+                    <label htmlFor="use_department">Department</label>
+                    <InventoryDropdown
+                      id="use_department"
+                      value={moveForm.department}
+                      options={DEPARTMENTS}
+                      onChange={(value) => setMove('department', value)}
+                    />
+                  </div>
+                </>
+              ) : null}
+              <div className="ui-field full">
+                <label htmlFor="use_notes">Notes</label>
+                <input id="use_notes" className="ui-input" value={moveForm.notes} onChange={(event) => setMove('notes', event.target.value)} />
               </div>
-            ) : null}
-            <div className="ui-field full">
-              <label htmlFor="notes">Notes</label>
-              <input id="notes" className="ui-input" value={moveForm.notes} onChange={(e) => setMove('notes', e.target.value)} />
-            </div>
-            <div className="form-actions full">
-              <Button type="submit" disabled={savingMove || !items.length || (bedsActionMode && selectedBed?.in_use)}>
-                {savingMove ? 'Saving...' : bedsActionMode ? (moveForm.bed_action === 'discard' ? 'Discard bed' : 'Set maintenance') : 'Record movement'}
-              </Button>
-            </div>
-          </form>
+              <div className="form-actions full">
+                <Button type="submit" disabled={savingMove || !selectedItem || !!stockOutError || (bedsActionMode && selectedBed?.in_use)}>
+                  {savingMove ? 'Saving…' : bedsActionMode ? (moveForm.bed_action === 'discard' ? 'Discard bed' : 'Set maintenance') : 'Record use'}
+                </Button>
+              </div>
+            </form>
+          ) : null}
 
-          <section className="panel print-stock-panel">
-            <div className="panel-head">
-              <h3>Stock list</h3>
-            </div>
-            <div className="list-toolbar no-print">
-              <input
-                className="ui-input"
-                type="search"
-                value={itemSearch}
-                onChange={(e) => setItemSearch(e.target.value)}
-                placeholder="Search items"
-                aria-label="Search items"
-              />
-            </div>
-            {filteredItems.length === 0 ? (
-              <p className="panel-copy">No inventory items yet.</p>
-            ) : (
-              <div className="scroll-panel dash-scroll-panel print-table-wrap">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Code</th>
-                      <th>Name</th>
-                      <th>Category</th>
-                      <th>Stock</th>
-                      <th>Cost</th>
-                      <th>Bill</th>
-                      <th>By</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredItems.map((i) => (
-                      <tr key={i.id}>
-                        <td>{i.item_code}</td>
-                        <td>{i.name}</td>
-                        <td>{i.category_label || labelOf(categories, i.category)}</td>
-                        <td>
-                          {i.stock_qty} {i.unit}
-                          {i.low_stock ? <span className="badge badge-warn"> low</span> : null}
-                        </td>
-                        <td>{formatPkr(i.unit_cost)}</td>
-                        <td>
-                          {i.bill_image_url ? (
-                            <a href={i.bill_image_url} target="_blank" rel="noreferrer">View</a>
-                          ) : '—'}
-                        </td>
-                        <td>{i.recorded_by || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          {activeTab === 'levels' ? (
+            <section className="panel print-stock-panel">
+              <div className="panel-head"><h3>All items</h3></div>
+              <div className="list-toolbar no-print">
+                <input className="ui-input" type="search" value={itemSearch} onChange={(event) => setItemSearch(event.target.value)} placeholder="Search items" aria-label="Search items" />
               </div>
-            )}
-          </section>
-
-          <section className="panel no-print">
-            <div className="panel-head">
-              <h3>Stock movements</h3>
-            </div>
-            <div className="list-toolbar">
-              <input
-                className="ui-input"
-                type="search"
-                value={moveQuery}
-                onChange={(e) => setMoveQuery(e.target.value)}
-                placeholder="Search code, person, purpose"
-                aria-label="Search movements"
-              />
-              <select className="ui-select" value={moveType} onChange={(e) => setMoveType(e.target.value)} aria-label="Type filter">
-                <option value="">All types</option>
-                <option value="in">Stock in</option>
-                <option value="out">Stock out</option>
-                <option value="adjust">Adjust</option>
-              </select>
-              <select className="ui-select" value={movePurpose} onChange={(e) => setMovePurpose(e.target.value)} aria-label="Purpose filter">
-                <option value="">All purposes</option>
-                {PURPOSES.map((p) => (
-                  <option key={p.value} value={p.value}>{p.label}</option>
-                ))}
-              </select>
-              <select className="ui-select" value={moveDepartment} onChange={(e) => setMoveDepartment(e.target.value)} aria-label="Department filter">
-                <option value="">All departments</option>
-                {DEPARTMENTS.map((d) => (
-                  <option key={d.value} value={d.value}>{d.label}</option>
-                ))}
-              </select>
-              <select className="ui-select" value={moveStaff} onChange={(e) => setMoveStaff(e.target.value)} aria-label="Staff filter">
-                <option value="">All staff</option>
-                {staff.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-            </div>
-            {movements.length === 0 ? (
-              <p className="panel-copy">No movements yet.</p>
-            ) : (
-              <div className="scroll-panel dash-scroll-panel">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Code</th>
-                      <th>Item</th>
-                      <th>Type</th>
-                      <th>Qty</th>
-                      <th>Purpose</th>
-                      <th>Person</th>
-                      <th>Dept</th>
-                      <th>Used for</th>
-                      <th>By</th>
-                      <th>Bill</th>
-                      <th>When</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {movements.map((m) => (
-                      <tr key={m.id}>
-                        <td>{m.movement_code}</td>
-                        <td>{m.item?.name}</td>
-                        <td><span className="badge">{m.type}</span></td>
-                        <td>{m.qty_label || `${m.quantity} ${m.unit || m.item?.unit || ''}`}</td>
-                        <td>{labelOf(PURPOSES, m.purpose)}</td>
-                        <td>{m.issued_to || '—'}</td>
-                        <td>{labelOf(DEPARTMENTS, m.department)}</td>
-                        <td>{m.used_for || '—'}</td>
-                        <td>{m.recorded_by || '—'}</td>
-                        <td>
-                          {m.bill_image_url ? (
-                            <a href={m.bill_image_url} target="_blank" rel="noreferrer">View</a>
-                          ) : '—'}
-                        </td>
-                        <td>{m.moved_at}</td>
+              {filteredItems.length === 0 ? (
+                <p className="panel-copy">No inventory items found.</p>
+              ) : (
+                <div className="scroll-panel dash-scroll-panel print-table-wrap">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Item</th>
+                        <th>Category</th>
+                        <th>Current stock</th>
+                        {canViewStockAlerts ? <><th>Low stock limit</th><th>Status</th></> : null}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+                    </thead>
+                    <tbody>
+                      {filteredItems.map((item) => (
+                        <tr key={item.id}>
+                          <td>{item.name}<br /><small>{item.item_code}</small></td>
+                          <td>{item.category_label || labelOf(categories, item.category)}</td>
+                          <td>
+                            <span className={`inventory-stock-level${item.stock_status === 'Out of stock' ? ' is-out' : item.stock_status === 'Low stock' ? ' is-low' : ''}`}>
+                              {item.stock_qty} {item.unit}
+                            </span>
+                          </td>
+                          {canViewStockAlerts ? (
+                            <>
+                              <td>{item.track_reorder ? `${item.reorder_level} ${item.unit}` : '—'}</td>
+                              <td>
+                                <span className={`badge ${item.stock_status === 'Out of stock' ? 'badge-danger' : item.stock_status === 'Low stock' ? 'badge-warn' : 'badge-ok'}`}>
+                                  {item.stock_status || 'In stock'}
+                                </span>
+                              </td>
+                            </>
+                          ) : null}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          ) : null}
         </>
       )}
+      <Modal
+        open={showNewItemModal}
+        title="Add a new inventory item"
+        onClose={() => setShowNewItemModal(false)}
+        hideFooter
+      >
+        <form className="form-grid" onSubmit={handleAddItem}>
+          <div className="ui-field full">
+            <label htmlFor="new_item_name">Name</label>
+            <input id="new_item_name" className="ui-input" required value={itemForm.name} onChange={(event) => setItem('name', event.target.value)} />
+          </div>
+          <div className="ui-field">
+            <label htmlFor="new_item_category">Category</label>
+            <select
+              id="new_item_category"
+              className="ui-select"
+              value={itemForm.category}
+              onChange={(event) => {
+                const category = event.target.value
+                setItemForm((previous) => ({ ...previous, category }))
+              }}
+            >
+              {categories.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}
+              <option value="__new__">Add new…</option>
+            </select>
+          </div>
+          {itemForm.category === '__new__' ? (
+            <div className="ui-field">
+              <label htmlFor="new_item_category_custom">New category</label>
+              <input id="new_item_category_custom" className="ui-input" required value={itemForm.category_custom} onChange={(event) => setItem('category_custom', event.target.value)} />
+            </div>
+          ) : null}
+          <div className="ui-field">
+            <label htmlFor="new_item_unit">Unit</label>
+            <input
+              id="new_item_unit"
+              className="ui-input"
+              required
+              value={itemForm.unit}
+              onChange={(event) => setItem('unit', event.target.value)}
+              placeholder="e.g. pcs, kg, liter"
+            />
+          </div>
+          <div className="form-actions full">
+            <Button type="button" variant="ghost" onClick={() => setShowNewItemModal(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={savingItem}>
+              {savingItem ? 'Adding…' : 'Add item'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }

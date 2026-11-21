@@ -13,7 +13,6 @@ const META = {
   nurse: { eyebrow: 'Nurse', title: 'Nurse dashboard' },
   finance: { eyebrow: 'Finance', title: 'Finance dashboard' },
   pharmacist: { eyebrow: 'Pharmacist', title: 'Pharmacy dashboard' },
-  'inventory-manager': { eyebrow: 'Inventory Manager', title: 'Inventory dashboard' },
 }
 
 export default function RoleHomePage({ roleKey }) {

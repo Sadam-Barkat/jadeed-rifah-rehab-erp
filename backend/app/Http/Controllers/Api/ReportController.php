@@ -238,6 +238,10 @@ class ReportController extends Controller
             return response()->json(['message' => 'Forbidden dashboard scope.'], 403);
         }
 
+        if ($scope === 'inventory-manager') {
+            return response()->json(['message' => 'Inventory Manager dashboard is no longer available.'], 403);
+        }
+
         $payload = match ($scope) {
             'admin' => $this->adminOverview($from, $to),
             'receptionist' => $this->receptionistDashboard($from, $to),
@@ -246,7 +250,6 @@ class ReportController extends Controller
             'nurse' => $this->nurseDashboard($from, $to),
             'finance' => $this->financeDashboard($from, $to),
             'pharmacist' => $this->pharmacistDashboard($from, $to),
-            'inventory-manager' => $this->inventoryDashboard($from, $to),
             default => $this->adminOverview($from, $to),
         };
 
@@ -997,17 +1000,27 @@ class ReportController extends Controller
 
         $movesIn = (clone $moveBase)->where('type', 'in')->count();
         $movesOut = (clone $moveBase)->where('type', 'out')->count();
-        $useForRows = (clone $moveBase)
+        $departmentUsage = (clone $moveBase)
             ->where('type', 'out')
-            ->whereNotNull('used_for')
-            ->where('used_for', '!=', '')
-            ->count();
-        $useForReasons = (int) (clone $moveBase)
-            ->where('type', 'out')
-            ->whereNotNull('used_for')
-            ->where('used_for', '!=', '')
-            ->selectRaw('COUNT(DISTINCT used_for) as c')
-            ->value('c');
+            ->whereNotNull('department')
+            ->where('department', '!=', '')
+            ->selectRaw('department, COUNT(*) as entries')
+            ->groupBy('department')
+            ->orderByDesc('entries')
+            ->orderBy('department')
+            ->get();
+        $topDepartment = $departmentUsage->first();
+
+        $departmentUsageDetail = [
+            'title' => 'Stock use by department',
+            'columns' => ['Department', 'Stock-out entries'],
+            'allow_filter' => false,
+            'search_placeholder' => 'Search departments',
+            'rows' => $departmentUsage->map(fn ($row) => [
+                ucwords(str_replace('_', ' ', $row->department)),
+                (int) $row->entries,
+            ])->values()->all(),
+        ];
 
         $itemQuery = InventoryItem::query()->where('status', 'active');
         if ($createdBy) {
@@ -1024,7 +1037,7 @@ class ReportController extends Controller
             ->get();
 
         $moveRows = InventoryMovement::query()
-            ->with(['item:id,name,item_code,unit', 'creator:id,name'])
+            ->with(['item:id,name,item_code,unit,unit_cost', 'creator:id,name'])
             ->whereBetween('moved_at', [$from, $to])
             ->when($createdBy, fn ($q) => $q->where('created_by', $createdBy))
             ->latest('moved_at')
@@ -1045,19 +1058,14 @@ class ReportController extends Controller
         $inDetail = $this->inventoryMovementDetail(
             $moveRows->where('type', 'in')->values(),
             'Stock in',
-            false
+            false,
+            true
         );
         $outDetail = $this->inventoryMovementDetail(
             $moveRows->where('type', 'out')->values(),
             'Stock out',
             false
         );
-        $useDetail = $this->inventoryUseForDetail(
-            $moveRows->where('type', 'out')
-                ->filter(fn (InventoryMovement $m) => filled($m->used_for))
-                ->values()
-        );
-
         $outTrend = InventoryMovement::query()->where('type', 'out')->whereBetween('moved_at', [$from, $to]);
         $inTrend = InventoryMovement::query()->where('type', 'in')->whereBetween('moved_at', [$from, $to]);
         if ($createdBy) {
@@ -1101,6 +1109,18 @@ class ReportController extends Controller
                     'detail' => $outDetail,
                 ],
                 [
+                    'key' => 'top-department',
+                    'label' => 'Top consuming department',
+                    'value' => $topDepartment
+                        ? ucwords(str_replace('_', ' ', $topDepartment->department))
+                        : '—',
+                    'meta' => $topDepartment
+                        ? ((int) $topDepartment->entries).' stock-out entries'
+                        : 'No stock-out entries',
+                    'tone' => 'blue',
+                    'detail' => $departmentUsageDetail,
+                ],
+                [
                     'key' => 'critical',
                     'label' => 'Critical',
                     'value' => $critical,
@@ -1115,7 +1135,7 @@ class ReportController extends Controller
                         'columns' => ['Code', 'Name', 'Category', 'Qty', 'Reorder', 'Status'],
                         'allow_filter' => false,
                         'search_placeholder' => 'Search by name',
-                        'rows' => array_values(array_filter($itemRows, fn ($r) => $r[5] === 'Critical')),
+                        'rows' => array_values(array_filter($itemRows, fn ($r) => $r[5] === 'Out of stock')),
                     ],
                 ],
                 [
@@ -1133,16 +1153,8 @@ class ReportController extends Controller
                         'columns' => ['Code', 'Name', 'Category', 'Qty', 'Reorder', 'Status'],
                         'allow_filter' => false,
                         'search_placeholder' => 'Search by name',
-                        'rows' => array_values(array_filter($itemRows, fn ($r) => in_array($r[5], ['Low', 'Critical'], true))),
+                        'rows' => array_values(array_filter($itemRows, fn ($r) => in_array($r[5], ['Low stock', 'Out of stock'], true))),
                     ],
-                ],
-                [
-                    'key' => 'use_for',
-                    'label' => 'Use for',
-                    'value' => $useForRows,
-                    'meta' => "{$useForReasons} reason(s)",
-                    'tone' => 'blue',
-                    'detail' => $useDetail,
                 ],
             ],
             'charts' => [
@@ -1304,7 +1316,7 @@ class ReportController extends Controller
             ->where('inventory_movements.type', 'in')
             ->whereBetween('inventory_movements.moved_at', [$from, $to])
             ->leftJoin('inventory_items', 'inventory_items.id', '=', 'inventory_movements.inventory_item_id')
-            ->selectRaw('COALESCE(SUM(inventory_movements.quantity * COALESCE(inventory_items.unit_cost, 0)), 0) as total')
+            ->selectRaw('COALESCE(SUM(inventory_movements.quantity * COALESCE(inventory_movements.unit_cost, inventory_items.unit_cost, 0)), 0) as total')
             ->value('total');
 
         $pettyExpense = (float) PettyExpense::query()
@@ -1625,10 +1637,27 @@ class ReportController extends Controller
         return [
             'title' => 'Reception dashboard',
             'kpis' => [
-                ['key' => 'total', 'label' => 'Total patients', 'value' => $totalPatients, 'meta' => "{$admittedPatients} admitted", 'tone' => 'blue'],
-                ['key' => 'registered', 'label' => 'New registrations', 'value' => $registered, 'meta' => $this->rangeLabel($from, $to), 'tone' => 'orange'],
-                ['key' => 'admissions', 'label' => 'Admissions', 'value' => $admissions, 'meta' => "{$active} active stays", 'tone' => 'purple'],
-                ['key' => 'beds', 'label' => 'Beds free', 'value' => $availableBeds, 'meta' => "{$occupiedBeds} occupied · of {$totalBeds}", 'tone' => 'green'],
+                [
+                    'key' => 'requests',
+                    'label' => 'Pending approval',
+                    'value' => Patient::query()->where('status', 'registered')->count(),
+                    'meta' => 'Waiting for admin',
+                    'tone' => 'orange',
+                ],
+                [
+                    'key' => 'assign',
+                    'label' => 'Ready for bed',
+                    'value' => Patient::query()->where('status', 'approved')->count(),
+                    'meta' => 'Approved — assign bed',
+                    'tone' => 'blue',
+                ],
+                [
+                    'key' => 'admitted',
+                    'label' => 'Admitted',
+                    'value' => $admittedPatients,
+                    'meta' => "{$availableBeds} beds free",
+                    'tone' => 'green',
+                ],
             ],
             'charts' => [
                 [
@@ -1684,12 +1713,7 @@ class ReportController extends Controller
                     ])->values()->all(),
                 ],
             ],
-            'links' => [
-                ['to' => '/app/registration', 'label' => 'Register patient'],
-                ['to' => '/app/admission', 'label' => 'Admit patient'],
-                ['to' => '/app/beds', 'label' => 'Beds'],
-                ['to' => '/app/patients', 'label' => 'Patients'],
-            ],
+            'links' => [],
             'alerts' => $availableBeds === 0
                 ? [['title' => 'No beds free', 'detail' => 'All beds are occupied', 'level' => 'warning']]
                 : [['title' => 'Reception ready', 'detail' => "{$availableBeds} bed(s) available", 'level' => 'success']],
@@ -1982,7 +2006,7 @@ class ReportController extends Controller
             ->where('inventory_movements.type', 'in')
             ->whereBetween('inventory_movements.moved_at', [$from, $to])
             ->leftJoin('inventory_items', 'inventory_items.id', '=', 'inventory_movements.inventory_item_id')
-            ->selectRaw('COALESCE(SUM(inventory_movements.quantity * COALESCE(inventory_items.unit_cost, 0)), 0) as total')
+            ->selectRaw('COALESCE(SUM(inventory_movements.quantity * COALESCE(inventory_movements.unit_cost, inventory_items.unit_cost, 0)), 0) as total')
             ->value('total'), 2);
         $pettyExpense = round((float) PettyExpense::query()
             ->where('status', 'posted')
@@ -2157,12 +2181,6 @@ class ReportController extends Controller
         $qty = (float) MedicineDispense::query()->whereBetween('dispensed_at', [$from, $to])->sum('quantity');
         $low = Medicine::query()->where('status', 'active')->whereColumn('stock_qty', '<=', 'reorder_level')->count();
         $activeMeds = Medicine::query()->where('status', 'active')->count();
-        $invLow = InventoryItem::query()
-            ->where('status', 'active')
-            ->tracksReorder()
-            ->whereColumn('stock_qty', '<=', 'reorder_level')
-            ->count();
-
         $meds = Medicine::query()
             ->where('status', 'active')
             ->orderBy('name')
@@ -2181,7 +2199,7 @@ class ReportController extends Controller
             'kpis' => [
                 ['key' => 'dispenses', 'label' => 'Dispenses', 'value' => $dispenses, 'meta' => $this->rangeLabel($from, $to), 'tone' => 'blue'],
                 ['key' => 'qty', 'label' => 'Qty dispensed', 'value' => $qty, 'meta' => $this->rangeLabel($from, $to), 'tone' => 'green'],
-                ['key' => 'low', 'label' => 'Low medicine', 'value' => $low, 'meta' => "of {$activeMeds} · inv low {$invLow}", 'tone' => 'orange'],
+                ['key' => 'low', 'label' => 'Low medicine', 'value' => $low, 'meta' => "of {$activeMeds}", 'tone' => 'orange'],
             ],
             'charts' => [
                 [
@@ -2247,19 +2265,6 @@ class ReportController extends Controller
                 ? [['title' => 'Low medicine stock', 'detail' => "{$low} medicine(s) need restock", 'level' => 'warning']]
                 : [['title' => 'Pharmacy stock', 'detail' => 'No low-stock medicines', 'level' => 'success']],
         ];
-    }
-
-    private function inventoryDashboard(Carbon $from, Carbon $to): array
-    {
-        return array_merge($this->adminInventorySection($from, $to), [
-            'title' => 'Inventory dashboard',
-            'links' => [
-                ['to' => '/app/inventory', 'label' => 'Stock in / out'],
-                ['to' => '/app/inventory', 'label' => 'Petty expenses'],
-                ['to' => '/app/inventory', 'label' => 'Facility bills'],
-                ['to' => '/app/kitchen', 'label' => 'Kitchen stock'],
-            ],
-        ]);
     }
 
     private function adminInventoryBillsSection(
@@ -2560,11 +2565,28 @@ class ReportController extends Controller
             ->all();
     }
 
-    private function inventoryMovementDetail($moveRows, string $title = 'Stock movements', bool $showType = true): array
+    private function inventoryMovementDetail(
+        $moveRows,
+        string $title = 'Stock movements',
+        bool $showType = true,
+        bool $showReceiptDetails = false
+    ): array
     {
-        $columns = $showType
-            ? ['Code', 'Item', 'Type', 'Qty', 'Purpose', 'Person', 'Dept', 'Used for', 'Recorded by', 'Date']
-            : ['Code', 'Item', 'Qty', 'Purpose', 'Person', 'Dept', 'Used for', 'Recorded by', 'Date'];
+        $columns = ['Code', 'Item'];
+        if ($showType) {
+            $columns[] = 'Type';
+        }
+        $columns[] = 'Qty';
+        if ($showReceiptDetails) {
+            $columns = array_merge($columns, ['Unit cost (PKR)', 'Total cost (PKR)', 'Bill']);
+        }
+        $columns = array_merge($columns, [
+            'Purpose',
+            $showReceiptDetails ? 'Supplier' : 'Person',
+            'Dept',
+            'Recorded by',
+            'Date',
+        ]);
 
         return [
             'title' => $title,
@@ -2572,7 +2594,7 @@ class ReportController extends Controller
             'allow_filter' => false,
             'staff_filter_column' => 'Recorded by',
             'search_placeholder' => 'Search by item',
-            'rows' => collect($moveRows)->map(function (InventoryMovement $m) use ($showType) {
+            'rows' => collect($moveRows)->map(function (InventoryMovement $m) use ($showType, $showReceiptDetails) {
                 $unit = $m->unit ?: ($m->item?->unit ?: '');
                 $row = [
                     $m->movement_code ?? ('#'.$m->id),
@@ -2582,10 +2604,17 @@ class ReportController extends Controller
                     $row[] = $m->type;
                 }
                 $row[] = $this->qtyLabel((float) $m->quantity, $unit);
+                if ($showReceiptDetails) {
+                    $unitCost = $m->unit_cost ?? $m->item?->unit_cost;
+                    $row[] = $unitCost !== null ? number_format((float) $unitCost, 2) : '—';
+                    $row[] = $unitCost !== null
+                        ? number_format((float) $m->quantity * (float) $unitCost, 2)
+                        : '—';
+                    $row[] = SecureUpload::url($m->bill_image_path) ?: '—';
+                }
                 $row[] = $m->purpose ? str_replace('_', ' ', $m->purpose) : '—';
                 $row[] = $m->issued_to ?: '—';
                 $row[] = $m->department ? str_replace('_', ' ', $m->department) : '—';
-                $row[] = $m->used_for ?: '—';
                 $row[] = $m->creator?->name ?: '—';
                 $row[] = optional($m->moved_at)->toDateTimeString() ?: '—';
 
@@ -2594,30 +2623,6 @@ class ReportController extends Controller
         ];
     }
 
-    private function inventoryUseForDetail($moveRows): array
-    {
-        return [
-            'title' => 'Use for',
-            'columns' => ['Used for', 'Item', 'Qty', 'Purpose', 'Dept', 'Person', 'Recorded by', 'Date'],
-            'filter_column' => 'Used for',
-            'staff_filter_column' => 'Recorded by',
-            'search_placeholder' => 'Search by use / item',
-            'rows' => collect($moveRows)->map(function (InventoryMovement $m) {
-                $unit = $m->unit ?: ($m->item?->unit ?: '');
-
-                return [
-                    $m->used_for ?: '—',
-                    $m->item?->name ?: ($m->item?->item_code ?: '—'),
-                    $this->qtyLabel((float) $m->quantity, $unit),
-                    $m->purpose ? str_replace('_', ' ', $m->purpose) : '—',
-                    $m->department ? str_replace('_', ' ', $m->department) : '—',
-                    $m->issued_to ?: '—',
-                    $m->creator?->name ?: '—',
-                    optional($m->moved_at)->toDateTimeString() ?: '—',
-                ];
-            })->values()->all(),
-        ];
-    }
     /** Merge empty/null categories into "other" after a plain GROUP BY (MySQL ONLY_FULL_GROUP_BY safe). */
     private function collapseCategoryCounts($rows)
     {
@@ -2922,7 +2927,7 @@ class ReportController extends Controller
                 ->where('inventory_movements.type', 'in')
                 ->leftJoin('inventory_items', 'inventory_items.id', '=', 'inventory_movements.inventory_item_id'),
             'inventory_movements.moved_at',
-            'SUM(inventory_movements.quantity * COALESCE(inventory_items.unit_cost, 0))',
+            'SUM(inventory_movements.quantity * COALESCE(inventory_movements.unit_cost, inventory_items.unit_cost, 0))',
             $from,
             $to
         );

@@ -31,7 +31,7 @@ class RoleUserSeeder extends Seeder
 
         $roleModules = [
             'admin' => $adminModules,
-            'receptionist' => ['registration', 'admission', 'patients', 'beds'],
+            'receptionist' => ['reception', 'registration', 'admission', 'patients', 'beds'],
             'gatekeeper' => ['visitors'],
             'doctor' => [
                 'patients', 'medical-records', 'doctors', 'nursing',
@@ -40,7 +40,7 @@ class RoleUserSeeder extends Seeder
             'nurse' => ['patients', 'nursing', 'medical-records'],
             'finance' => ['billing'],
             'pharmacist' => ['pharmacy'],
-            'inventory-manager' => ['inventory', 'kitchen'],
+            'inventory-manager' => ['inventory'],
         ];
 
         $roleNames = [

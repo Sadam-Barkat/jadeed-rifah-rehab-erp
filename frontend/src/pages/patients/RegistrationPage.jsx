@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
@@ -24,30 +24,31 @@ const emptyForm = {
   date_of_birth: '',
   age: '',
   phone: '',
-  email: '',
   address: '',
   city: '',
   blood_group: '',
   marital_status: '',
   referral_source: '',
   plan_days: '30',
-  action_mode: 'admit',
-  bed_id: '',
+  action_mode: 'register',
   guardian_name: '',
   guardian_relation: '',
   guardian_phone: '',
   guardian_cnic: '',
+  guardian_address: '',
 }
 
-export default function RegistrationPage() {
+export default function RegistrationPage({ embedded = false, backTo: backToProp }) {
   const navigate = useNavigate()
   const location = useLocation()
   const { user } = useAuth()
   const isAdmin = user?.role_slug === 'admin'
-  const [form, setForm] = useState(emptyForm)
+  const isReception = user?.role_slug === 'receptionist'
+  const [form, setForm] = useState({ ...emptyForm, action_mode: 'register' })
   const [cnicFront, setCnicFront] = useState(null)
   const [cnicBack, setCnicBack] = useState(null)
-  const [beds, setBeds] = useState([])
+  const [guardianCnicFront, setGuardianCnicFront] = useState(null)
+  const [guardianCnicBack, setGuardianCnicBack] = useState(null)
   const [loading, setLoading] = useState(false)
   const [duplicates, setDuplicates] = useState([])
   const [dupMatched, setDupMatched] = useState([])
@@ -55,8 +56,13 @@ export default function RegistrationPage() {
   const [dupOpen, setDupOpen] = useState(false)
 
   const backTo =
+    backToProp ||
     location.state?.backTo ||
-    (isAdmin ? '/app/management?tab=patients' : '/app/patients')
+    (isReception
+      ? '/app/reception?tab=pending'
+      : isAdmin
+        ? '/app/management?tab=patients&status=registered'
+        : '/app/patients')
   function setField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
@@ -69,21 +75,6 @@ export default function RegistrationPage() {
     }))
   }
 
-  useEffect(() => {
-    if (!isAdmin) return undefined
-    let cancelled = false
-    api('/beds/available')
-      .then((res) => {
-        if (!cancelled) setBeds(res.data || [])
-      })
-      .catch(() => {
-        if (!cancelled) setBeds([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [isAdmin])
-
   function buildFormData(force = false) {
     const fd = new FormData()
     fd.append('first_name', form.first_name)
@@ -94,17 +85,13 @@ export default function RegistrationPage() {
     if (form.date_of_birth) fd.append('date_of_birth', form.date_of_birth)
     if (form.age) fd.append('age', String(Number(form.age)))
     if (form.phone) fd.append('phone', form.phone)
-    if (form.email) fd.append('email', form.email)
     if (form.address) fd.append('address', form.address)
     if (form.city) fd.append('city', form.city)
     if (form.blood_group) fd.append('blood_group', form.blood_group)
     if (form.marital_status) fd.append('marital_status', form.marital_status)
     if (form.referral_source) fd.append('referral_source', form.referral_source)
     fd.append('plan_days', form.plan_days)
-    fd.append('action_mode', isAdmin ? 'admit' : 'register')
-    if (isAdmin && form.bed_id) {
-      fd.append('bed_id', String(form.bed_id))
-    }
+    fd.append('action_mode', 'register')
     if (force) fd.append('force', '1')
     if (cnicFront) fd.append('cnic_front', cnicFront)
     if (cnicBack) fd.append('cnic_back', cnicBack)
@@ -113,7 +100,10 @@ export default function RegistrationPage() {
       if (form.guardian_relation) fd.append('guardian[relation]', form.guardian_relation)
       if (form.guardian_phone) fd.append('guardian[phone]', form.guardian_phone)
       if (form.guardian_cnic) fd.append('guardian[cnic]', form.guardian_cnic)
+      if (form.guardian_address) fd.append('guardian[address]', form.guardian_address)
       fd.append('guardian[is_emergency]', '1')
+      if (guardianCnicFront) fd.append('guardian_cnic_front', guardianCnicFront)
+      if (guardianCnicBack) fd.append('guardian_cnic_back', guardianCnicBack)
     }
     return fd
   }
@@ -127,24 +117,46 @@ export default function RegistrationPage() {
       toast.error('Enter a valid phone (11 digits, e.g. 03XXXXXXXXX)')
       return
     }
-    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
-      toast.error('Enter a valid email')
+    if (!form.gender) {
+      toast.error('Select gender')
       return
     }
-    if (form.guardian_cnic && !isValidPkCnic(form.guardian_cnic)) {
-      toast.error('Enter a valid guardian CNIC')
+    if (!form.marital_status) {
+      toast.error('Select marital status')
       return
     }
-    if (form.guardian_phone && !isValidPkPhone(form.guardian_phone)) {
-      toast.error('Enter a valid guardian phone (11 digits)')
+    if (!form.city.trim()) {
+      toast.error('Enter city')
       return
+    }
+    if (!form.address.trim()) {
+      toast.error('Enter address')
+      return
+    }
+    if (form.guardian_name.trim()) {
+      if (!form.guardian_relation.trim()) {
+        toast.error('Enter guardian relation')
+        return
+      }
+      if (!isValidPkCnic(form.guardian_cnic)) {
+        toast.error('Enter a valid guardian CNIC')
+        return
+      }
+      if (!isValidPkPhone(form.guardian_phone)) {
+        toast.error('Enter a valid guardian phone (11 digits)')
+        return
+      }
+      if (!form.guardian_address.trim()) {
+        toast.error('Enter guardian address')
+        return
+      }
+      if (!guardianCnicFront || !guardianCnicBack) {
+        toast.error('Guardian CNIC front and back images are required')
+        return
+      }
     }
     if (!cnicFront || !cnicBack) {
       toast.error('CNIC front and back images are required')
-      return
-    }
-    if (isAdmin && !form.bed_id) {
-      toast.error('Select a bed to admit')
       return
     }
     setLoading(true)
@@ -155,7 +167,15 @@ export default function RegistrationPage() {
       })
       toast.success(data.message || `Saved ${data.data.patient_code}`)
       setDupOpen(false)
-      navigate(`/app/patients/${data.data.id}`, { state: { backTo } })
+      setForm({ ...emptyForm, action_mode: 'register' })
+      setCnicFront(null)
+      setCnicBack(null)
+      setGuardianCnicFront(null)
+      setGuardianCnicBack(null)
+      navigate(isReception || embedded ? '/app/reception?tab=pending' : `/app/patients/${data.data.id}`, {
+        state: { backTo },
+        replace: true,
+      })
     } catch (err) {
       if (err.status === 409 && err.data?.duplicates) {
         setDuplicates(err.data.duplicates)
@@ -171,18 +191,20 @@ export default function RegistrationPage() {
   }
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">Patient Care</p>
-          <h2>Patient Registration</h2>
+    <div className={embedded ? 'embedded-page' : 'page'}>
+      {embedded ? null : (
+        <div className="page-header">
+          <div>
+            <p className="eyebrow">Patient Care</p>
+            <h2>Patient Registration</h2>
+          </div>
+          <div className="page-actions">
+            <Link className="ui-btn ui-btn-back ui-btn-md" to={backTo}>
+              Back
+            </Link>
+          </div>
         </div>
-        <div className="page-actions">
-          <Link className="ui-btn ui-btn-back ui-btn-md" to={backTo}>
-            Back
-          </Link>
-        </div>
-      </div>
+      )}
 
       <form
         className="panel form-grid"
@@ -205,26 +227,6 @@ export default function RegistrationPage() {
             <option value="90">90 days</option>
           </select>
         </div>
-
-        {isAdmin ? (
-          <div className="ui-field">
-            <label htmlFor="bed_id">Bed</label>
-            <select
-              id="bed_id"
-              className="ui-select"
-              required
-              value={form.bed_id}
-              onChange={(e) => setField('bed_id', e.target.value)}
-            >
-              <option value="">Select bed</option>
-              {beds.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.bed_code} · {b.room_name || b.room_code}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : null}
 
         <div className="ui-field">
           <label htmlFor="first_name">First name</label>
@@ -268,36 +270,6 @@ export default function RegistrationPage() {
             onChange={(e) => setField('cnic', formatPkCnic(e.target.value))}
           />
         </div>
-        <ImageCaptureField
-          id="cnic_front"
-          label="CNIC front"
-          value={cnicFront}
-          required
-          filenamePrefix="cnic-front"
-          onChange={setCnicFront}
-        />
-        <ImageCaptureField
-          id="cnic_back"
-          label="CNIC back"
-          value={cnicBack}
-          required
-          filenamePrefix="cnic-back"
-          onChange={setCnicBack}
-        />
-        <div className="ui-field">
-          <label htmlFor="gender">Gender</label>
-          <select
-            id="gender"
-            className="ui-select"
-            value={form.gender}
-            onChange={(e) => setField('gender', e.target.value)}
-          >
-            <option value="">Select</option>
-            <option value="male">Male</option>
-            <option value="female">Female</option>
-            <option value="other">Other</option>
-          </select>
-        </div>
         <div className="ui-field">
           <label htmlFor="phone">Phone</label>
           <input
@@ -311,6 +283,74 @@ export default function RegistrationPage() {
             value={form.phone}
             onChange={(e) => setField('phone', formatPkPhone(e.target.value))}
           />
+        </div>
+        <div className="cnic-pair">
+          <ImageCaptureField
+            id="cnic_front"
+            label="CNIC front"
+            value={cnicFront}
+            required
+            filenamePrefix="cnic-front"
+            onChange={setCnicFront}
+          />
+          <ImageCaptureField
+            id="cnic_back"
+            label="CNIC back"
+            value={cnicBack}
+            required
+            filenamePrefix="cnic-back"
+            onChange={setCnicBack}
+          />
+        </div>
+        <div className="ui-field">
+          <label htmlFor="gender">Gender</label>
+          <select
+            id="gender"
+            className="ui-select"
+            required
+            value={form.gender}
+            onChange={(e) => setField('gender', e.target.value)}
+          >
+            <option value="">Select</option>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div className="ui-field">
+          <label htmlFor="marital_status">Marital status</label>
+          <select
+            id="marital_status"
+            className="ui-select"
+            required
+            value={form.marital_status}
+            onChange={(e) => setField('marital_status', e.target.value)}
+          >
+            <option value="">Select</option>
+            <option value="single">Single</option>
+            <option value="married">Married</option>
+            <option value="divorced">Divorced</option>
+            <option value="widowed">Widowed</option>
+          </select>
+        </div>
+        <div className="ui-field">
+          <label htmlFor="blood_group">Blood group</label>
+          <select
+            id="blood_group"
+            className="ui-select"
+            value={form.blood_group}
+            onChange={(e) => setField('blood_group', e.target.value)}
+          >
+            <option value="">Unknown</option>
+            <option value="A+">A+</option>
+            <option value="A-">A-</option>
+            <option value="B+">B+</option>
+            <option value="B-">B-</option>
+            <option value="AB+">AB+</option>
+            <option value="AB-">AB-</option>
+            <option value="O+">O+</option>
+            <option value="O-">O-</option>
+          </select>
         </div>
         <div className="ui-field">
           <label htmlFor="date_of_birth">Date of birth</label>
@@ -340,6 +380,7 @@ export default function RegistrationPage() {
           <input
             id="city"
             className="ui-input"
+            required
             value={form.city}
             onChange={(e) => setField('city', e.target.value)}
           />
@@ -372,6 +413,7 @@ export default function RegistrationPage() {
           <input
             id="address"
             className="ui-input"
+            required
             value={form.address}
             onChange={(e) => setField('address', e.target.value)}
           />
@@ -397,18 +439,6 @@ export default function RegistrationPage() {
           />
         </div>
         <div className="ui-field">
-          <label htmlFor="guardian_phone">Guardian phone</label>
-          <input
-            id="guardian_phone"
-            className="ui-input"
-            inputMode="numeric"
-            placeholder="03XXXXXXXXX"
-            maxLength={11}
-            value={form.guardian_phone}
-            onChange={(e) => setField('guardian_phone', formatPkPhone(e.target.value))}
-          />
-        </div>
-        <div className="ui-field">
           <label htmlFor="guardian_cnic">Guardian CNIC</label>
           <input
             id="guardian_cnic"
@@ -420,10 +450,49 @@ export default function RegistrationPage() {
             onChange={(e) => setField('guardian_cnic', formatPkCnic(e.target.value))}
           />
         </div>
+        <div className="ui-field">
+          <label htmlFor="guardian_phone">Guardian phone</label>
+          <input
+            id="guardian_phone"
+            className="ui-input"
+            inputMode="numeric"
+            placeholder="03XXXXXXXXX"
+            maxLength={11}
+            value={form.guardian_phone}
+            onChange={(e) => setField('guardian_phone', formatPkPhone(e.target.value))}
+          />
+        </div>
+        <div className="ui-field full">
+          <label htmlFor="guardian_address">Guardian address</label>
+          <input
+            id="guardian_address"
+            className="ui-input"
+            value={form.guardian_address}
+            onChange={(e) => setField('guardian_address', e.target.value)}
+          />
+        </div>
+        <div className="cnic-pair">
+          <ImageCaptureField
+            id="guardian_cnic_front"
+            label="Guardian CNIC front"
+            value={guardianCnicFront}
+            required={!!form.guardian_name.trim()}
+            filenamePrefix="guardian-cnic-front"
+            onChange={setGuardianCnicFront}
+          />
+          <ImageCaptureField
+            id="guardian_cnic_back"
+            label="Guardian CNIC back"
+            value={guardianCnicBack}
+            required={!!form.guardian_name.trim()}
+            filenamePrefix="guardian-cnic-back"
+            onChange={setGuardianCnicBack}
+          />
+        </div>
 
         <div className="form-actions full">
           <Button type="submit" disabled={loading}>
-            {loading ? 'Saving...' : isAdmin ? 'Register & admit' : 'Submit registration'}
+            {loading ? 'Saving...' : 'Submit request'}
           </Button>
         </div>
       </form>
