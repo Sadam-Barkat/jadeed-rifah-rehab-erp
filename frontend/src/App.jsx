@@ -20,7 +20,10 @@ const DischargePage = lazy(() => import('./pages/discharge/DischargePage'))
 const MedicalRecordsPage = lazy(() => import('./pages/medical/MedicalRecordsPage'))
 const DoctorsPage = lazy(() => import('./pages/doctors/DoctorsPage'))
 const NursingPage = lazy(() => import('./pages/nursing/NursingPage'))
+const MedicineSlipPage = lazy(() => import('./pages/nursing/MedicineSlipPage'))
 const PharmacyPage = lazy(() => import('./pages/pharmacy/PharmacyPage'))
+const PharmacyFulfillPage = lazy(() => import('./pages/pharmacy/PharmacyFulfillPage'))
+const MedicineReceiptPage = lazy(() => import('./pages/pharmacy/MedicineReceiptPage'))
 const BillingPage = lazy(() => import('./pages/billing/BillingPage'))
 const PaymentApprovalPage = lazy(() => import('./pages/billing/PaymentApprovalPage'))
 const FeePlanApprovalPage = lazy(() => import('./pages/billing/FeePlanApprovalPage'))
@@ -62,7 +65,8 @@ export default function App() {
               <Route path="home/doctor" element={<RoleHomePage roleKey="doctor" />} />
               <Route path="home/nurse" element={<RoleHomePage roleKey="nurse" />} />
               <Route path="home/finance" element={<Navigate to="/app/billing" replace />} />
-              <Route path="home/pharmacist" element={<RoleHomePage roleKey="pharmacist" />} />
+              <Route path="home/dispenser" element={<RoleHomePage roleKey="dispenser" />} />
+              <Route path="home/pharmacist" element={<RoleHomePage roleKey="dispenser" />} />
               <Route path="home/inventory" element={<Navigate to="/app/inventory?tab=use" replace />} />
               <Route path="owner-dashboard" element={<OwnerDashboard />} />
               <Route path="admin/patients-beds" element={<AdminSectionPage section="patients" fallbackTitle="Patients & beds overview" />} />
@@ -85,7 +89,10 @@ export default function App() {
               <Route path="medical-records" element={<MedicalRecordsPage />} />
               <Route path="doctors" element={<DoctorsPage />} />
               <Route path="nursing" element={<NursingPage />} />
+              <Route path="medicine-slips/:id" element={<MedicineSlipPage />} />
               <Route path="pharmacy" element={<PharmacyPage />} />
+              <Route path="pharmacy/fulfill/:id" element={<PharmacyFulfillPage />} />
+              <Route path="medicine-receipts/:id" element={<MedicineReceiptPage />} />
               <Route path="billing" element={<BillingPage />} />
               <Route path="payments/:id" element={<PaymentApprovalPage />} />
               <Route path="fee-plans/:id" element={<FeePlanApprovalPage />} />

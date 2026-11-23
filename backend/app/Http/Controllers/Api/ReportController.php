@@ -23,6 +23,7 @@ use App\Models\StaffAttendance;
 use App\Models\User;
 use App\Models\VisitorLog;
 use App\Support\SecureUpload;
+use App\Support\StaffAttendanceRetention;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Http\JsonResponse;
@@ -64,7 +65,7 @@ class ReportController extends Controller
             'data' => [
                 'years' => $years,
                 'months' => range(1, 12),
-                'pharmacy_staff' => $this->staffOptionsByRole(['pharmacist']),
+                'pharmacy_staff' => $this->staffOptionsByRole(['dispenser', 'pharmacist']),
                 'inventory_staff' => $this->staffOptionsByRole(['inventory-manager']),
                 'finance_staff' => $this->staffOptionsByRole(['finance', 'inventory-manager']),
                 'petty_spent_for' => PettyExpense::query()
@@ -158,8 +159,10 @@ class ReportController extends Controller
                     'doctor',
                     'nurse',
                     'finance',
+                    'dispenser',
                     'pharmacist',
                     'inventory-manager',
+                    'cook',
                 ]),
             ],
             'section' => [
@@ -249,6 +252,7 @@ class ReportController extends Controller
             'doctor' => $this->doctorDashboard($from, $to),
             'nurse' => $this->nurseDashboard($from, $to),
             'finance' => $this->financeDashboard($from, $to),
+            'dispenser' => $this->pharmacistDashboard($from, $to),
             'pharmacist' => $this->pharmacistDashboard($from, $to),
             default => $this->adminOverview($from, $to),
         };
@@ -340,12 +344,14 @@ class ReportController extends Controller
         $openInvoiceTotal = (float) Invoice::query()
             ->whereIn('status', ['unpaid', 'partial'])
             ->sum('total_amount');
-        // Staff attendance is day-based (not a range sum).
+        // Staff attendance is day-based (not a range sum). Photos clear after 24h.
+        StaffAttendanceRetention::maintain();
         $staffDay = $from->isSameDay($to) ? $from->copy() : now();
         $staffDayStr = $staffDay->toDateString();
         $presentToday = StaffAttendance::query()
             ->with(['user.role:id,name'])
             ->whereDate('attendance_date', $staffDayStr)
+            ->where('status', 'present')
             ->get();
         $presentCount = $presentToday->count();
         $staffByRole = $presentToday
@@ -1470,11 +1476,13 @@ class ReportController extends Controller
     {
         $active = User::query()->where('is_active', true)->count();
         $total = User::query()->count();
+        StaffAttendanceRetention::maintain();
         $staffDay = $from->isSameDay($to) ? $from->copy() : now();
         $staffDayStr = $staffDay->toDateString();
         $presentRows = StaffAttendance::query()
             ->with(['user.role:id,name', 'checker:id,name'])
             ->whereDate('attendance_date', $staffDayStr)
+            ->where('status', 'present')
             ->latest('check_in_at')
             ->get();
         $presentGallery = $presentRows->map(function (StaffAttendance $a) {
@@ -1502,8 +1510,9 @@ class ReportController extends Controller
             'doctor',
             'nurse',
             'finance',
-            'pharmacist',
+            'dispenser',
             'inventory-manager',
+            'cook',
         ];
         $roleTones = [
             'receptionist' => 'blue',
@@ -1511,8 +1520,9 @@ class ReportController extends Controller
             'doctor' => 'green',
             'nurse' => 'purple',
             'finance' => 'green',
-            'pharmacist' => 'orange',
+            'dispenser' => 'orange',
             'inventory-manager' => 'red',
+            'cook' => 'orange',
         ];
         $roleLabels = [
             'receptionist' => 'Receptionists',
@@ -1520,8 +1530,9 @@ class ReportController extends Controller
             'doctor' => 'Doctors',
             'nurse' => 'Nurses',
             'finance' => 'Finance staff',
-            'pharmacist' => 'Pharmacists',
+            'dispenser' => 'Dispensers',
             'inventory-manager' => 'Inventory managers',
+            'cook' => 'Cooks',
         ];
 
         $roles = \App\Models\Role::query()
@@ -2195,7 +2206,7 @@ class ReportController extends Controller
             ->get();
 
         return [
-            'title' => 'Pharmacy dashboard',
+            'title' => 'Dispenser dashboard',
             'kpis' => [
                 ['key' => 'dispenses', 'label' => 'Dispenses', 'value' => $dispenses, 'meta' => $this->rangeLabel($from, $to), 'tone' => 'blue'],
                 ['key' => 'qty', 'label' => 'Qty dispensed', 'value' => $qty, 'meta' => $this->rangeLabel($from, $to), 'tone' => 'green'],

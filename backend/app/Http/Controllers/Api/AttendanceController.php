@@ -7,19 +7,16 @@ use App\Models\StaffAttendance;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\SecureUpload;
+use App\Support\StaffAttendanceRetention;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 
 class AttendanceController extends Controller
 {
-    /** Keep attendance photos this many days (storage-friendly). */
-    public const PHOTO_RETENTION_DAYS = 14;
-
     public function day(Request $request): JsonResponse
     {
-        $this->purgeOldPhotos();
+        StaffAttendanceRetention::maintain();
 
         $data = $request->validate([
             'date' => ['nullable', 'date'],
@@ -31,6 +28,7 @@ class AttendanceController extends Controller
         $rows = StaffAttendance::query()
             ->with(['user.role:id,name,slug', 'checker:id,name'])
             ->whereDate('attendance_date', $date)
+            ->where('status', 'present')
             ->latest('check_in_at')
             ->get();
 
@@ -39,7 +37,7 @@ class AttendanceController extends Controller
             'meta' => [
                 'date' => $date,
                 'total' => $rows->count(),
-                'photo_retention_days' => self::PHOTO_RETENTION_DAYS,
+                'photo_retention_hours' => StaffAttendanceRetention::PHOTO_RETENTION_HOURS,
             ],
         ]);
     }
@@ -47,7 +45,7 @@ class AttendanceController extends Controller
     /** Gatekeeper: photo + staff 4-digit attendance code. */
     public function gateCheckIn(Request $request): JsonResponse
     {
-        $this->purgeOldPhotos();
+        StaffAttendanceRetention::maintain();
 
         $data = $request->validate([
             'attendance_code' => ['required', 'string', 'size:4'],
@@ -125,22 +123,5 @@ class AttendanceController extends Controller
             ],
             'checked_in_by' => $row->checker?->name,
         ];
-    }
-
-    private function purgeOldPhotos(): void
-    {
-        $cutoff = now()->subDays(self::PHOTO_RETENTION_DAYS)->startOfDay();
-        $old = StaffAttendance::query()
-            ->whereNotNull('photo_path')
-            ->where('attendance_date', '<', $cutoff->toDateString())
-            ->limit(200)
-            ->get(['id', 'photo_path']);
-
-        foreach ($old as $row) {
-            if ($row->photo_path && Storage::disk('public')->exists($row->photo_path)) {
-                Storage::disk('public')->delete($row->photo_path);
-            }
-            $row->update(['photo_path' => null]);
-        }
     }
 }

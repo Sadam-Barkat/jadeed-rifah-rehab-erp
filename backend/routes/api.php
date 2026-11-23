@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\MedicalRecordController;
 use App\Http\Controllers\Api\MedicineController;
 use App\Http\Controllers\Api\MedicineDispenseController;
 use App\Http\Controllers\Api\MedicineMovementController;
+use App\Http\Controllers\Api\MedicinePrescriptionController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\NursingNoteController;
 use App\Http\Controllers\Api\PatientController;
@@ -47,7 +48,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/notifications', [NotificationController::class, 'index']);
     Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
-    Route::get('/notifications/stock-receipts/{movement}', [NotificationController::class, 'stockReceipt']);
+        Route::get('/notifications/stock-receipts/{movement}', [NotificationController::class, 'stockReceipt']);
+        Route::get('/notifications/medicine-receipts/{movement}', [NotificationController::class, 'medicineReceipt']);
     Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
     Route::post('/notifications/{notification}/read', [NotificationController::class, 'markRead']);
 
@@ -83,8 +85,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/admissions', [AdmissionController::class, 'store']);
     });
 
-    Route::middleware('module:doctors,medical-records,patients')->group(function () {
+    Route::middleware('module:doctors,medical-records,patients,pharmacy')->group(function () {
         Route::get('/doctors', [DoctorController::class, 'index']);
+    });
+
+    Route::middleware('module:doctors,medical-records,patients')->group(function () {
         Route::post('/doctors', [DoctorController::class, 'store']);
         Route::get('/doctors/{doctor}', [DoctorController::class, 'show']);
         Route::put('/doctors/{doctor}', [DoctorController::class, 'update']);
@@ -123,15 +128,28 @@ Route::middleware('auth:sanctum')->group(function () {
     // Medicines are Pharmacy-only (not Inventory). Read access for clinical roles.
     Route::middleware('module:pharmacy,nursing,patients,doctors,medical-records')->group(function () {
         Route::get('/medicines', [MedicineController::class, 'index']);
+        Route::get('/medicines/expired', [MedicineController::class, 'expired']);
         Route::get('/medicine-dispenses', [MedicineDispenseController::class, 'index']);
+        Route::get('/medicine-prescriptions', [MedicinePrescriptionController::class, 'index']);
+        Route::get('/medicine-prescriptions/{medicinePrescription}', [MedicinePrescriptionController::class, 'show']);
+    });
+
+    Route::middleware('module:doctors,medical-records,nursing,pharmacy')->group(function () {
+        Route::get('/staff/nurses', [MedicinePrescriptionController::class, 'nurses']);
+    });
+
+    Route::middleware('module:doctors,medical-records')->group(function () {
+        Route::post('/medicine-prescriptions', [MedicinePrescriptionController::class, 'store']);
     });
 
     Route::middleware('module:pharmacy')->group(function () {
         Route::post('/medicines', [MedicineController::class, 'store']);
+        Route::post('/medicines/batch', [MedicineController::class, 'storeBatch']);
         Route::put('/medicines/{medicine}', [MedicineController::class, 'update']);
         Route::get('/medicine-movements', [MedicineMovementController::class, 'index']);
         Route::post('/medicine-movements', [MedicineMovementController::class, 'store']);
         Route::post('/medicine-dispenses', [MedicineDispenseController::class, 'store']);
+        Route::post('/medicine-prescriptions/{medicinePrescription}/dispense', [MedicinePrescriptionController::class, 'dispense']);
     });
 
     Route::middleware('module:billing,accounts')->group(function () {

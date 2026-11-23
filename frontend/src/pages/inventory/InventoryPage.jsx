@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext'
 import Button from '../../components/ui/Button'
 import Modal from '../../components/ui/Modal'
 import { SkeletonCards } from '../../components/ui/Skeleton'
+import DateRangeFilter, { defaultRange } from '../../components/dashboard/DateRangeFilter'
 import { homePathForUser } from '../../lib/roleHomes'
 import '../pages.css'
 
@@ -67,6 +68,23 @@ const emptyMove = {
   bed_action: 'maintenance',
 }
 
+const DISCARD_CATEGORIES = [
+  { value: 'beds', label: 'Beds' },
+  { value: 'furniture', label: 'Furniture' },
+  { value: 'equipment', label: 'Equipment' },
+  { value: 'electronics', label: 'Electronics' },
+  { value: 'security', label: 'Security / cameras' },
+  { value: 'linen', label: 'Linen' },
+]
+
+const emptyDiscard = {
+  category: 'beds',
+  inventory_item_id: '',
+  bed_id: '',
+  quantity: '',
+  notes: '',
+}
+
 function labelOf(list, value) {
   return list.find((item) => item.value === value)?.label || value || '—'
 }
@@ -78,6 +96,19 @@ function isCountUnit(unit) {
 function localDateValue() {
   const date = new Date()
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+}
+
+function formatMovedAt(value) {
+  if (!value) return '—'
+  const date = new Date(String(value).replace(' ', 'T'))
+  if (Number.isNaN(date.getTime())) return String(value)
+  return date.toLocaleString('en-PK', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
 }
 
 function InventoryDropdown({ id, value, options, onChange, placeholder, disabled = false }) {
@@ -212,22 +243,34 @@ export default function InventoryPage() {
   const { user } = useAuth()
   const [searchParams] = useSearchParams()
   const canUseInventory = (user?.modules || []).includes('inventory')
+  const isCook = user?.role_slug === 'cook'
+  const isInventoryManager = user?.role_slug === 'inventory-manager'
   const requestedTab = searchParams.get('tab') || 'use'
-  const activeTab = ['use', 'receive', 'levels'].includes(requestedTab) ? requestedTab : 'use'
+  const allowedTabs = isCook ? ['use'] : ['use', 'receive', 'levels', 'discard']
+  const activeTab = allowedTabs.includes(requestedTab) ? requestedTab : 'use'
   const canViewStockAlerts = ['admin', 'inventory-manager'].includes(user?.role_slug)
   const [loading, setLoading] = useState(true)
   const [savingItem, setSavingItem] = useState(false)
   const [savingMove, setSavingMove] = useState(false)
   const [savingStock, setSavingStock] = useState(false)
+  const [savingDiscard, setSavingDiscard] = useState(false)
   const [items, setItems] = useState([])
   const [categories, setCategories] = useState(CATEGORIES)
   const [itemForm, setItemForm] = useState(emptyItem)
   const [showNewItemModal, setShowNewItemModal] = useState(false)
+  const [blockDiscardOpen, setBlockDiscardOpen] = useState(false)
   const [moveForm, setMoveForm] = useState(emptyMove)
+  const [discardForm, setDiscardForm] = useState(emptyDiscard)
   const [itemSearch, setItemSearch] = useState('')
   const [stockBill, setStockBill] = useState(null)
   const stockBillInputRef = useRef(null)
   const [beds, setBeds] = useState([])
+  const [cookMoves, setCookMoves] = useState([])
+  const [cooks, setCooks] = useState([])
+  const [cookLogLoading, setCookLogLoading] = useState(false)
+  const [cookSearch, setCookSearch] = useState('')
+  const [debouncedCookSearch, setDebouncedCookSearch] = useState('')
+  const [cookFilter, setCookFilter] = useState(() => defaultRange())
   const [stockForm, setStockForm] = useState({
     inventory_item_id: '',
     quantity: '',
@@ -245,19 +288,38 @@ export default function InventoryPage() {
     () => items.find((item) => String(item.id) === String(stockForm.inventory_item_id)),
     [items, stockForm.inventory_item_id]
   )
-  const selectedBed = useMemo(
-    () => beds.find((bed) => String(bed.id) === String(moveForm.bed_id)),
-    [beds, moveForm.bed_id]
+  const discardItems = useMemo(
+    () => items.filter((item) => item.category === discardForm.category),
+    [items, discardForm.category]
   )
-  const isBedsItem = selectedItem?.category === 'beds'
-  const bedsActionMode = isBedsItem
+  const bedsInventoryItem = useMemo(
+    () => items.find((item) => item.category === 'beds') || null,
+    [items]
+  )
+  const selectedDiscardItem = useMemo(
+    () => items.find((item) => String(item.id) === String(discardForm.inventory_item_id)),
+    [items, discardForm.inventory_item_id]
+  )
+  const selectedDiscardBed = useMemo(
+    () => beds.find((bed) => String(bed.id) === String(discardForm.bed_id)),
+    [beds, discardForm.bed_id]
+  )
+  const isDiscardBeds = discardForm.category === 'beds'
+  const discardListLabel = isDiscardBeds
+    ? 'Bed'
+    : (DISCARD_CATEGORIES.find((row) => row.value === discardForm.category)?.label || 'Item')
   const quantityStep = isCountUnit(selectedItem?.unit) ? '1' : '0.01'
+  const discardQtyStep = isCountUnit(selectedDiscardItem?.unit) ? '1' : '0.01'
   const stockOutError = selectedItem && (
     Number(selectedItem.stock_qty) <= 0
       ? `${selectedItem.name} is out of stock.`
       : Number(moveForm.quantity) > Number(selectedItem.stock_qty)
         ? `Insufficient stock. Available: ${selectedItem.stock_qty} ${selectedItem.unit}.`
         : ''
+  )
+  const useItems = useMemo(
+    () => (isCook ? items : items.filter((item) => item.category !== 'beds')),
+    [items, isCook]
   )
 
   function setItem(key, value) {
@@ -268,17 +330,22 @@ export default function InventoryPage() {
     setMoveForm((previous) => ({ ...previous, [key]: value }))
   }
 
+  function setDiscard(key, value) {
+    setDiscardForm((previous) => ({ ...previous, [key]: value }))
+  }
+
   function clearStockBill() {
     setStockBill(null)
     if (stockBillInputRef.current) stockBillInputRef.current.value = ''
   }
 
   async function loadItems() {
-    const firstPage = await api('/inventory-items?status=active&per_page=100&page=1')
+    const categoryQuery = isCook ? '&category=kitchen' : ''
+    const firstPage = await api(`/inventory-items?status=active&per_page=100&page=1${categoryQuery}`)
     const pageCount = Number(firstPage.meta?.last_page || 1)
     const otherPages = await Promise.all(
       Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) =>
-        api(`/inventory-items?status=active&per_page=100&page=${index + 2}`)
+        api(`/inventory-items?status=active&per_page=100&page=${index + 2}${categoryQuery}`)
       )
     )
     setItems([...(firstPage.data || []), ...otherPages.flatMap((page) => page.data || [])])
@@ -292,13 +359,59 @@ export default function InventoryPage() {
     setBeds(response.data || [])
   }
 
+  async function loadCookLog() {
+    if (!isCook) return
+    setCookLogLoading(true)
+    try {
+      const params = new URLSearchParams({
+        type: 'out',
+        purpose: 'kitchen_use',
+        department: 'kitchen',
+        per_page: '100',
+        page: '1',
+      })
+      if (cookFilter?.from) params.set('from', cookFilter.from)
+      if (cookFilter?.to) params.set('to', cookFilter.to)
+      if (cookFilter?.created_by) params.set('created_by', String(cookFilter.created_by))
+      if (debouncedCookSearch) params.set('q', debouncedCookSearch)
+
+      const firstPage = await api(`/inventory-movements?${params}`)
+      const pageCount = Number(firstPage.meta?.last_page || 1)
+      const otherPages = await Promise.all(
+        Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) => {
+          const next = new URLSearchParams(params)
+          next.set('page', String(index + 2))
+          return api(`/inventory-movements?${next}`)
+        })
+      )
+      setCookMoves([...(firstPage.data || []), ...otherPages.flatMap((page) => page.data || [])])
+      if (Array.isArray(firstPage.meta?.cooks)) {
+        setCooks(firstPage.meta.cooks)
+      }
+    } catch (error) {
+      toast.error(error.message || 'Failed to load kitchen use log')
+    } finally {
+      setCookLogLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (!canUseInventory) return
 
-    Promise.all([loadItems(), loadBeds()])
+    Promise.all([loadItems(), isCook ? Promise.resolve() : loadBeds()])
       .catch((error) => toast.error(error.message || 'Failed to load inventory'))
       .finally(() => setLoading(false))
-  }, [canUseInventory])
+  }, [canUseInventory, isCook])
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedCookSearch(cookSearch.trim()), 350)
+    return () => clearTimeout(timer)
+  }, [cookSearch])
+
+  useEffect(() => {
+    if (!isCook || !canUseInventory || loading) return
+    loadCookLog()
+  }, [isCook, canUseInventory, loading, debouncedCookSearch, cookFilter?.from, cookFilter?.to, cookFilter?.created_by, cookFilter?.mode])
 
   const filteredItems = useMemo(() => {
     const query = itemSearch.trim().toLowerCase()
@@ -363,16 +476,8 @@ export default function InventoryPage() {
       toast.error(selectedItem ? `${selectedItem.name} is out of stock.` : 'Select an item')
       return
     }
-    if (!isBedsItem && Number(moveForm.quantity) > Number(selectedItem.stock_qty)) {
+    if (Number(moveForm.quantity) > Number(selectedItem.stock_qty)) {
       toast.error(`Insufficient stock. Available: ${selectedItem.stock_qty} ${selectedItem.unit}.`)
-      return
-    }
-    if (isBedsItem && !moveForm.bed_id) {
-      toast.error('Select a bed')
-      return
-    }
-    if (isBedsItem && selectedBed?.in_use) {
-      toast.error('Bed is in use. Discharge the patient first.')
       return
     }
 
@@ -381,27 +486,88 @@ export default function InventoryPage() {
       const body = new FormData()
       body.append('inventory_item_id', String(selectedItem.id))
       body.append('type', 'out')
-      if (isBedsItem) {
-        body.append('bed_id', String(Number(moveForm.bed_id)))
-        body.append('bed_action', moveForm.bed_action)
-        body.append('quantity', '1')
-        body.append('purpose', moveForm.bed_action === 'discard' ? 'waste' : 'maintenance')
-        body.append('department', 'maintenance')
-      } else {
-        body.append('quantity', String(Number(moveForm.quantity)))
-        body.append('purpose', moveForm.purpose)
-        body.append('department', moveForm.department)
-      }
+      body.append('quantity', String(Number(moveForm.quantity)))
+      body.append('purpose', isCook ? 'kitchen_use' : moveForm.purpose)
+      body.append('department', isCook ? 'kitchen' : moveForm.department)
       if (moveForm.notes.trim()) body.append('notes', moveForm.notes.trim())
 
       const response = await api('/inventory-movements', { method: 'POST', body })
       toast.success(response.message || `${response.data.movement_code} recorded`)
       setMoveForm(emptyMove)
-      await Promise.all([loadItems(), loadBeds()])
+      await Promise.all([
+        loadItems(),
+        isCook ? loadCookLog() : loadBeds(),
+      ])
     } catch (error) {
       toast.error(error.message || 'Stock use failed')
     } finally {
       setSavingMove(false)
+    }
+  }
+
+  async function handleDiscard(event) {
+    event.preventDefault()
+    if (isDiscardBeds) {
+      if (!bedsInventoryItem) {
+        toast.error('No beds stock item found')
+        return
+      }
+      if (!discardForm.bed_id) {
+        toast.error('Select a bed')
+        return
+      }
+      if (selectedDiscardBed?.in_use) {
+        setBlockDiscardOpen(true)
+        return
+      }
+    } else {
+      if (!selectedDiscardItem) {
+        toast.error('Select an item')
+        return
+      }
+      if (!discardForm.quantity || Number(discardForm.quantity) <= 0) {
+        toast.error('Enter quantity')
+        return
+      }
+      if (Number(discardForm.quantity) > Number(selectedDiscardItem.stock_qty)) {
+        toast.error(`Insufficient stock. Available: ${selectedDiscardItem.stock_qty} ${selectedDiscardItem.unit}.`)
+        return
+      }
+    }
+
+    const targetItem = isDiscardBeds ? bedsInventoryItem : selectedDiscardItem
+    setSavingDiscard(true)
+    try {
+      const body = new FormData()
+      body.append('inventory_item_id', String(targetItem.id))
+      body.append('type', 'out')
+      body.append('purpose', 'waste')
+      body.append('department', 'maintenance')
+      if (isDiscardBeds) {
+        body.append('bed_id', String(Number(discardForm.bed_id)))
+        body.append('bed_action', 'discard')
+        body.append('quantity', '1')
+      } else {
+        body.append('quantity', String(Number(discardForm.quantity)))
+      }
+      if (discardForm.notes.trim()) body.append('notes', discardForm.notes.trim())
+
+      const response = await api('/inventory-movements', { method: 'POST', body })
+      toast.success(response.message || `${response.data.movement_code} discarded`)
+      setDiscardForm((previous) => ({
+        ...emptyDiscard,
+        category: previous.category,
+      }))
+      await Promise.all([loadItems(), loadBeds()])
+    } catch (error) {
+      const message = error.message || 'Discard failed'
+      if (/not possible|assigned to a patient|in use/i.test(message)) {
+        setBlockDiscardOpen(true)
+      } else {
+        toast.error(message)
+      }
+    } finally {
+      setSavingDiscard(false)
     }
   }
 
@@ -449,7 +615,7 @@ export default function InventoryPage() {
       <div className="page-header no-print">
         <div>
           <p className="eyebrow">Operations</p>
-          <h2>Inventory &amp; Stock</h2>
+          <h2>{isCook ? 'Kitchen stock' : 'Inventory & Stock'}</h2>
         </div>
         {activeTab === 'receive' ? (
           <div className="page-actions no-print">
@@ -550,66 +716,35 @@ export default function InventoryPage() {
 
           {activeTab === 'use' ? (
             <form className="panel form-grid no-print" onSubmit={handleUseStock}>
-              <div className="panel-head full"><h3>{isBedsItem ? 'Bed maintenance / discard' : 'Use stock'}</h3></div>
+              <div className="panel-head full"><h3>{isCook ? 'Kitchen stock use' : 'Use stock'}</h3></div>
               <div className="ui-field">
                 <label htmlFor="use_item">Item</label>
                 <InventoryDropdown
                   id="use_item"
                   value={moveForm.inventory_item_id}
                   placeholder="Select item"
-                  options={items.map((item) => ({
+                  options={useItems.map((item) => ({
                     value: item.id,
                     label: `${item.name} · ${item.stock_qty} ${item.unit}`,
                   }))}
                   onChange={(value) => {
-                    const item = items.find((row) => String(row.id) === value)
+                    const item = useItems.find((row) => String(row.id) === value)
                     setMoveForm({
                       ...emptyMove,
                       inventory_item_id: value,
-                      purpose: item?.category === 'beds' ? 'maintenance' : 'kitchen_use',
-                      department: item?.category === 'beds' ? 'maintenance' : 'kitchen',
+                      purpose: 'kitchen_use',
+                      department: 'kitchen',
                     })
                     if (item && Number(item.stock_qty) <= 0) toast.error(`${item.name} is out of stock.`)
                   }}
                 />
               </div>
-              {bedsActionMode ? (
-                <>
-                  <div className="ui-field">
-                    <label htmlFor="use_bed">Bed</label>
-                    <InventoryDropdown
-                      id="use_bed"
-                      value={moveForm.bed_id}
-                      placeholder="Select bed"
-                      options={beds.map((bed) => ({
-                        value: bed.id,
-                        label: bed.label,
-                        disabled: bed.in_use,
-                      }))}
-                      onChange={(value) => setMove('bed_id', value)}
-                    />
-                  </div>
-                  <div className="ui-field">
-                    <label htmlFor="bed_action">Action</label>
-                    <InventoryDropdown
-                      id="bed_action"
-                      value={moveForm.bed_action}
-                      options={[
-                        { value: 'maintenance', label: 'Maintenance' },
-                        { value: 'discard', label: 'Total discard' },
-                      ]}
-                      onChange={(value) => setMove('bed_action', value)}
-                    />
-                  </div>
-                </>
-              ) : (
-                <div className="ui-field">
-                  <label htmlFor="use_quantity">Quantity ({selectedItem?.unit || 'unit'})</label>
-                  <input id="use_quantity" className="ui-input" type="number" min={quantityStep} max={selectedItem?.stock_qty} step={quantityStep} required value={moveForm.quantity} onChange={(event) => setMove('quantity', event.target.value)} />
-                  {stockOutError ? <span className="inventory-stock-error">{stockOutError}</span> : null}
-                </div>
-              )}
-              {!bedsActionMode ? (
+              <div className="ui-field">
+                <label htmlFor="use_quantity">Quantity ({selectedItem?.unit || 'unit'})</label>
+                <input id="use_quantity" className="ui-input" type="number" min={quantityStep} max={selectedItem?.stock_qty} step={quantityStep} required value={moveForm.quantity} onChange={(event) => setMove('quantity', event.target.value)} />
+                {stockOutError ? <span className="inventory-stock-error">{stockOutError}</span> : null}
+              </div>
+              {!isCook ? (
                 <>
                   <div className="ui-field">
                     <label htmlFor="use_purpose">Purpose</label>
@@ -636,8 +771,175 @@ export default function InventoryPage() {
                 <input id="use_notes" className="ui-input" value={moveForm.notes} onChange={(event) => setMove('notes', event.target.value)} />
               </div>
               <div className="form-actions full">
-                <Button type="submit" disabled={savingMove || !selectedItem || !!stockOutError || (bedsActionMode && selectedBed?.in_use)}>
-                  {savingMove ? 'Saving…' : bedsActionMode ? (moveForm.bed_action === 'discard' ? 'Discard bed' : 'Set maintenance') : 'Record use'}
+                <Button type="submit" disabled={savingMove || !selectedItem || !!stockOutError}>
+                  {savingMove ? 'Saving…' : 'Record use'}
+                </Button>
+              </div>
+            </form>
+          ) : null}
+
+          {isCook && activeTab === 'use' ? (
+            <section className="panel print-stock-panel">
+              <header className="print-dash-head">
+                <p className="print-dash-org">Jadeed Rifah Rehab &amp; Care Center</p>
+                <h3>Kitchen use log</h3>
+              </header>
+              <div className="panel-head no-print">
+                <h3>Kitchen use log</h3>
+              </div>
+              <div className="list-toolbar no-print cook-log-toolbar">
+                <input
+                  className="ui-input cook-log-search"
+                  type="search"
+                  value={cookSearch}
+                  onChange={(event) => setCookSearch(event.target.value)}
+                  placeholder="Search item or cook"
+                  aria-label="Search kitchen use log"
+                />
+                <DateRangeFilter
+                  value={cookFilter}
+                  onApply={setCookFilter}
+                  loading={cookLogLoading}
+                  showStaff
+                  staffOptions={cooks}
+                  staffLabel="Cook"
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => window.print()}
+                  disabled={loading || cookLogLoading}
+                >
+                  Print
+                </Button>
+              </div>
+              {cookLogLoading ? (
+                <SkeletonCards count={2} />
+              ) : cookMoves.length === 0 ? (
+                <p className="panel-copy">No kitchen use records for this filter.</p>
+              ) : (
+                <div className="scroll-panel dash-scroll-panel print-table-wrap">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Date / time</th>
+                        <th>Item</th>
+                        <th>Quantity</th>
+                        <th>Cook</th>
+                        <th>Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cookMoves.map((row) => (
+                        <tr key={row.id}>
+                          <td>{formatMovedAt(row.moved_at)}</td>
+                          <td>
+                            {row.item?.name || '—'}
+                            {row.item?.item_code ? (
+                              <>
+                                <br />
+                                <small>{row.item.item_code}</small>
+                              </>
+                            ) : null}
+                          </td>
+                          <td>{row.qty_label || `${row.quantity} ${row.unit}`}</td>
+                          <td>{row.recorded_by || row.issued_to || '—'}</td>
+                          <td>{row.notes || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          ) : null}
+
+          {activeTab === 'discard' && isInventoryManager ? (
+            <form className="panel form-grid no-print" onSubmit={handleDiscard}>
+              <div className="panel-head full"><h3>Discard item</h3></div>
+              <div className="ui-field">
+                <label htmlFor="discard_category">Category</label>
+                <InventoryDropdown
+                  id="discard_category"
+                  value={discardForm.category}
+                  options={DISCARD_CATEGORIES}
+                  onChange={(value) => setDiscardForm({
+                    ...emptyDiscard,
+                    category: value,
+                  })}
+                />
+              </div>
+              {isDiscardBeds ? (
+                <div className="ui-field">
+                  <label htmlFor="discard_bed">{discardListLabel}</label>
+                  <InventoryDropdown
+                    id="discard_bed"
+                    value={discardForm.bed_id}
+                    placeholder="Select bed"
+                    options={beds.map((bed) => ({
+                      value: bed.id,
+                      label: bed.label,
+                    }))}
+                    onChange={(value) => {
+                      const bed = beds.find((row) => String(row.id) === String(value))
+                      if (bed?.in_use) {
+                        setBlockDiscardOpen(true)
+                        return
+                      }
+                      setDiscard('bed_id', value)
+                    }}
+                  />
+                </div>
+              ) : (
+                <>
+                  <div className="ui-field">
+                    <label htmlFor="discard_list">{discardListLabel}</label>
+                    <InventoryDropdown
+                      id="discard_list"
+                      value={discardForm.inventory_item_id}
+                      placeholder={`Select ${discardListLabel.toLowerCase()}`}
+                      options={discardItems.map((item) => ({
+                        value: item.id,
+                        label: `${item.name} · ${item.stock_qty} ${item.unit}`,
+                      }))}
+                      onChange={(value) => setDiscardForm((previous) => ({
+                        ...previous,
+                        inventory_item_id: value,
+                        quantity: '',
+                      }))}
+                    />
+                  </div>
+                  <div className="ui-field">
+                    <label htmlFor="discard_qty">Quantity ({selectedDiscardItem?.unit || 'unit'})</label>
+                    <input
+                      id="discard_qty"
+                      className="ui-input"
+                      type="number"
+                      min={discardQtyStep}
+                      max={selectedDiscardItem?.stock_qty}
+                      step={discardQtyStep}
+                      required
+                      value={discardForm.quantity}
+                      onChange={(event) => setDiscard('quantity', event.target.value)}
+                    />
+                  </div>
+                </>
+              )}
+              <div className="ui-field full">
+                <label htmlFor="discard_notes">Notes</label>
+                <input id="discard_notes" className="ui-input" value={discardForm.notes} onChange={(event) => setDiscard('notes', event.target.value)} />
+              </div>
+              <div className="form-actions full">
+                <Button
+                  type="submit"
+                  disabled={
+                    savingDiscard
+                    || (isDiscardBeds
+                      ? !bedsInventoryItem || !discardForm.bed_id || selectedDiscardBed?.in_use
+                      : !selectedDiscardItem || !discardForm.quantity)
+                  }
+                >
+                  {savingDiscard ? 'Saving…' : 'Discard'}
                 </Button>
               </div>
             </form>
@@ -692,6 +994,16 @@ export default function InventoryPage() {
           ) : null}
         </>
       )}
+      <Modal
+        open={blockDiscardOpen}
+        title="Not possible"
+        onClose={() => setBlockDiscardOpen(false)}
+        cancelLabel="OK"
+        confirm={false}
+        size="sm"
+      >
+        <p className="panel-copy">This bed is assigned to a patient. Discharge the patient first.</p>
+      </Modal>
       <Modal
         open={showNewItemModal}
         title="Add a new inventory item"

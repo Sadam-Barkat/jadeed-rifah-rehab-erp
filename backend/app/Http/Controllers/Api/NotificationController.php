@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\AppNotification;
 use App\Models\InventoryMovement;
+use App\Models\MedicineMovement;
 use App\Services\AppNotifier;
 use App\Support\SecureUpload;
 use Illuminate\Http\JsonResponse;
@@ -94,6 +95,114 @@ class NotificationController extends Controller
                 'recorded_by' => $movement->creator?->name,
                 'notes' => $movement->notes,
                 'bill_image_url' => SecureUpload::url($movement->bill_image_path),
+                'bill_image_type' => $billType,
+            ],
+        ]);
+    }
+
+    public function medicineReceipt(Request $request, MedicineMovement $movement): JsonResponse
+    {
+        $link = '/app/medicine-receipts/'.$movement->id;
+        $hasNotification = AppNotification::query()
+            ->where('user_id', $request->user()->id)
+            ->where('type', 'pharmacy.stock_received')
+            ->where(function ($q) use ($link, $movement) {
+                $q->where('link', $link)
+                    ->orWhere('link', 'like', '%/medicine-receipts/'.$movement->id);
+            })
+            ->exists();
+
+        if (! $hasNotification || $movement->type !== 'in') {
+            // Also allow if this movement shares a bill with a notified batch head.
+            $batchSibling = false;
+            if ($movement->bill_image_path) {
+                $headIds = AppNotification::query()
+                    ->where('user_id', $request->user()->id)
+                    ->where('type', 'pharmacy.stock_received')
+                    ->get(['meta', 'link'])
+                    ->flatMap(function (AppNotification $n) {
+                        $meta = is_array($n->meta) ? $n->meta : [];
+                        $ids = $meta['medicine_movement_ids'] ?? [];
+                        if (! empty($meta['medicine_movement_id'])) {
+                            $ids[] = $meta['medicine_movement_id'];
+                        }
+                        if (preg_match('#/medicine-receipts/(\d+)#', (string) $n->link, $m)) {
+                            $ids[] = (int) $m[1];
+                        }
+
+                        return $ids;
+                    })
+                    ->map(fn ($id) => (int) $id)
+                    ->unique()
+                    ->values();
+
+                if ($headIds->isNotEmpty()) {
+                    $batchSibling = MedicineMovement::query()
+                        ->whereIn('id', $headIds->all())
+                        ->where('bill_image_path', $movement->bill_image_path)
+                        ->exists()
+                        || $headIds->contains((int) $movement->id);
+                }
+            }
+
+            if (! $batchSibling) {
+                return response()->json(['message' => 'Not found'], 404);
+            }
+        }
+
+        $movements = MedicineMovement::query()
+            ->with(['medicine:id,medicine_code,name,strength,unit,category,form', 'creator:id,name'])
+            ->where('type', 'in')
+            ->when(
+                $movement->bill_image_path,
+                fn ($q) => $q->where('bill_image_path', $movement->bill_image_path),
+                fn ($q) => $q->where('id', $movement->id)
+            )
+            ->orderBy('id')
+            ->get();
+
+        if ($movements->isEmpty()) {
+            return response()->json(['message' => 'Not found'], 404);
+        }
+
+        $first = $movements->first();
+        $extension = strtolower(pathinfo((string) $first->bill_image_path, PATHINFO_EXTENSION));
+        $billType = $extension === 'pdf'
+            ? 'application/pdf'
+            : (in_array($extension, ['jpg', 'jpeg', 'png', 'webp'], true) ? 'image/'.$extension : null);
+        if ($extension === 'jpg') {
+            $billType = 'image/jpeg';
+        }
+
+        $items = $movements->map(function (MedicineMovement $row) {
+            return [
+                'movement_code' => $row->movement_code,
+                'medicine_code' => $row->medicine?->medicine_code,
+                'name' => $row->medicine?->name,
+                'strength' => $row->medicine?->strength,
+                'category' => $row->medicine?->category,
+                'form' => $row->medicine?->form,
+                'quantity' => $row->quantity,
+                'unit' => $row->medicine?->unit ?: 'unit',
+                'unit_cost' => $row->unit_cost,
+                'total_cost' => round((float) $row->quantity * (float) $row->unit_cost, 2),
+                'batch_no' => $row->batch_no,
+                'expiry_date' => $row->expiry_date?->toDateString(),
+                'supplier' => $row->supplier,
+            ];
+        })->values();
+
+        return response()->json([
+            'data' => [
+                'receipt_id' => $first->id,
+                'items' => $items,
+                'item_count' => $items->count(),
+                'total_cost' => round($items->sum('total_cost'), 2),
+                'supplier' => $items->pluck('supplier')->filter()->unique()->values()->implode(', ') ?: null,
+                'received_at' => $first->moved_at?->toDateTimeString(),
+                'recorded_by' => $first->creator?->name,
+                'notes' => $first->notes,
+                'bill_image_url' => SecureUpload::url($first->bill_image_path),
                 'bill_image_type' => $billType,
             ],
         ]);

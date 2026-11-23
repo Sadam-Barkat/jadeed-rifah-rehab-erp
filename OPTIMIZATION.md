@@ -12,8 +12,8 @@ Update this file whenever optimization work is applied or skipped.
 | 4 | Database indexing | Done | patients + clinical + ops + audit_logs | audit action/module/created_at indexes |
 | 5 | Slim API responses | Done | PatientController + ReportController | overview aggregates only needed KPIs |
 | 8 | Avoid N+1 queries (Laravel eager load) | Done | Patient + DoctorRound index | doctor/patient/admission eager load |
-| 13 | Inner scroll for growing lists | In Progress | Visitors + Staff + Patients + Inventory + Pharmacy + Petty + Fees tabs + dashboard + Management cards + Reception desk cards + Gate present/log | Fees + Reception + Gate lists use `.scroll-panel` / card grid |
-| 14 | Search on expandable lists | In Progress | Visitors + Staff + Patients + Inventory + Pharmacy + Petty + Fees + Management + Reception desk + Gate visitors | Debounced search on Fees + Reception + Gate tabs |
+| 13 | Inner scroll for growing lists | In Progress | Visitors + Staff + Patients + Inventory + Pharmacy/Dispenser Orders + Expired + Petty + Fees + dashboard + Management + Reception + Gate + Cook log + MedicinePicker + fulfill/receive lines + stock category accordion | Fulfill/receive lines + expired batches + stock category items scroll inside panels |
+| 14 | Search on expandable lists | In Progress | Visitors + Staff + Patients + Inventory + Pharmacy/Dispenser Orders + Expired + Petty + Fees + Management + Reception + Gate + Cook log + MedicinePicker | Debounced search on Orders/Levels/Expired; Levels grouped by expandable category |
 
 ## Should (light alongside, deep polish later)
 
@@ -37,4 +37,4 @@ Update this file whenever optimization work is applied or skipped.
 - Must remaining: 0 Todo (2 In Progress: scroll + search rollout)
 - Should remaining: 1 Todo + 1 In Progress (image/file)
 - Later: 3
-- Last updated: 2026-11-19 (Reception desk tabs/cards + approve/assign flow)
+- Last updated: 2026-11-23 (Pharmacy Expired tab + usable_only picker)

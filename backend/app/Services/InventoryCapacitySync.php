@@ -52,7 +52,7 @@ class InventoryCapacitySync
         }
 
         if ($bed->status === 'occupied' || $bed->admissions()->where('status', 'active')->exists()) {
-            throw new \RuntimeException('Bed is in use by a patient. Discharge the patient first.');
+            throw new \RuntimeException('Not possible. This bed is assigned to a patient.');
         }
 
         if ($action === 'maintenance') {

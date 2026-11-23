@@ -31,9 +31,10 @@ const ROLE_FILTERS = [
   { id: 'doctor', label: 'Doctors' },
   { id: 'nurse', label: 'Nurses' },
   { id: 'receptionist', label: 'Reception' },
-  { id: 'pharmacist', label: 'Pharmacy' },
+  { id: 'dispenser', label: 'Dispenser' },
   { id: 'finance', label: 'Finance' },
   { id: 'inventory-manager', label: 'Inventory' },
+  { id: 'cook', label: 'Cook' },
   { id: 'gatekeeper', label: 'Gate' },
 ]
 

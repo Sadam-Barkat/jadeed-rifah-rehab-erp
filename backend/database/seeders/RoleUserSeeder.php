@@ -39,8 +39,9 @@ class RoleUserSeeder extends Seeder
             ],
             'nurse' => ['patients', 'nursing', 'medical-records'],
             'finance' => ['billing'],
-            'pharmacist' => ['pharmacy'],
+            'dispenser' => ['pharmacy'],
             'inventory-manager' => ['inventory'],
+            'cook' => ['inventory'],
         ];
 
         $roleNames = [
@@ -50,9 +51,16 @@ class RoleUserSeeder extends Seeder
             'doctor' => 'Doctor',
             'nurse' => 'Nurse',
             'finance' => 'Finance',
-            'pharmacist' => 'Pharmacist',
+            'dispenser' => 'Dispenser',
             'inventory-manager' => 'Inventory Manager',
+            'cook' => 'Cook',
         ];
+
+        Role::query()->where('slug', 'pharmacist')->update([
+            'slug' => 'dispenser',
+            'name' => 'Dispenser',
+            'modules' => ['pharmacy'],
+        ]);
 
         foreach ($roleNames as $slug => $name) {
             Role::query()->updateOrCreate(
@@ -118,11 +126,11 @@ class RoleUserSeeder extends Seeder
                 'phone' => '03001110006',
             ],
             [
-                'email' => 'pharmacist@jadeed.local',
-                'staff_code' => 'PHR-0001',
-                'name' => 'Pharmacist Ahmad',
-                'password' => 'Pharmacist@123',
-                'role' => 'pharmacist',
+                'email' => 'dispenser@jadeed.local',
+                'staff_code' => 'DSP-0001',
+                'name' => 'Dispenser Ahmad',
+                'password' => 'Dispenser@123',
+                'role' => 'dispenser',
                 'phone' => '03001110007',
             ],
             [
@@ -133,7 +141,19 @@ class RoleUserSeeder extends Seeder
                 'role' => 'inventory-manager',
                 'phone' => '03001110008',
             ],
+            [
+                'email' => 'cook@jadeed.local',
+                'staff_code' => 'COK-0001',
+                'name' => 'Cook Staff',
+                'password' => 'Cook@123',
+                'role' => 'cook',
+                'phone' => '03001110009',
+            ],
         ];
+
+        User::query()
+            ->where('email', 'pharmacist@jadeed.local')
+            ->update(['email' => 'dispenser@jadeed.local']);
 
         $keepEmails = [];
         foreach ($staff as $row) {

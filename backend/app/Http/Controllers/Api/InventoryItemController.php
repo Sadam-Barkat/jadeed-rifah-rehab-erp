@@ -16,6 +16,7 @@ class InventoryItemController extends Controller
     public function index(Request $request): JsonResponse
     {
         $perPage = min(max((int) $request->integer('per_page', 20), 1), 100);
+        $isCook = $request->user()?->role?->slug === 'cook';
 
         $query = InventoryItem::query()
             ->with('creator:id,name,staff_code')
@@ -25,7 +26,9 @@ class InventoryItemController extends Controller
             $query->where('status', $status);
         }
 
-        if ($category = $request->get('category')) {
+        if ($isCook) {
+            $query->where('category', 'kitchen');
+        } elseif ($category = $request->get('category')) {
             $query->where('category', $category);
         }
 
@@ -60,6 +63,10 @@ class InventoryItemController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        if ($request->user()?->role?->slug === 'cook') {
+            return response()->json(['message' => 'Cooks can only record kitchen stock use.'], 403);
+        }
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'category' => ['nullable', 'string', 'max:60'],
@@ -128,6 +135,10 @@ class InventoryItemController extends Controller
 
     public function update(Request $request, InventoryItem $inventoryItem): JsonResponse
     {
+        if ($request->user()?->role?->slug === 'cook') {
+            return response()->json(['message' => 'Cooks can only record kitchen stock use.'], 403);
+        }
+
         $data = $request->validate([
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'category' => ['nullable', 'string', 'max:60'],

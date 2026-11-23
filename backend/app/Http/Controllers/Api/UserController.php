@@ -22,8 +22,9 @@ class UserController extends Controller
         'doctor',
         'nurse',
         'finance',
-        'pharmacist',
+        'dispenser',
         'inventory-manager',
+        'cook',
     ];
 
     public function roles(): JsonResponse
@@ -328,8 +329,9 @@ class UserController extends Controller
             'receptionist' => 'REC',
             'gatekeeper' => 'GAT',
             'finance' => 'FIN',
-            'pharmacist' => 'PHR',
+            'dispenser' => 'DSP',
             'inventory-manager' => 'INV',
+            'cook' => 'COK',
             default => 'STF',
         };
 

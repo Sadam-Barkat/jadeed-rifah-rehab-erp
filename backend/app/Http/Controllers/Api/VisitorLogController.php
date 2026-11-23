@@ -42,9 +42,7 @@ class VisitorLogController extends Controller
         $isGatekeeper = $request->user()?->role?->slug === 'gatekeeper';
         $visitorWindowStart = now()->subHours(24);
 
-        if ($isGatekeeper) {
-            app(GatekeeperVisitorAutoCheckout::class)->run();
-        }
+        app(GatekeeperVisitorAutoCheckout::class)->run();
 
         $query = VisitorLog::query()
             ->with(['patient', 'admission', 'creator'])
@@ -130,6 +128,8 @@ class VisitorLogController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        app(GatekeeperVisitorAutoCheckout::class)->run();
+
         $data = $request->validate([
             'admission_id' => ['nullable', 'exists:admissions,id'],
             'patient_id' => ['nullable', 'exists:patients,id'],

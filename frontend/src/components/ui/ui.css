@@ -211,13 +211,16 @@ select:focus {
 
 /* Desktop: one medium size for all modal variants */
 .ui-modal-lg,
-.ui-modal-xl,
 .ui-modal-fit {
   width: min(720px, 92vw);
 }
 
+.ui-modal-xl {
+  width: min(980px, 94vw);
+}
+
 .ui-modal-sm {
-  width: min(360px, 92vw);
+  width: min(420px, 92vw);
 }
 
 .ui-modal-confirm {
@@ -356,8 +359,8 @@ select:focus {
   .ui-modal-fit .ui-modal-body {
     width: 100%;
     max-width: 100%;
-    padding: 0 var(--space-4) var(--space-4);
-    overflow-x: hidden;
+    padding: var(--space-3) var(--space-4) var(--space-4);
+    overflow-x: auto;
   }
 
   .ui-modal-footer {

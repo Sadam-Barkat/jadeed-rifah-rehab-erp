@@ -13,7 +13,9 @@ class PharmacyActivitySeeder extends Seeder
 {
     public function run(): void
     {
-        $pharmacist = User::query()->where('email', 'pharmacist@jadeed.local')->first();
+        $pharmacist = User::query()
+            ->whereIn('email', ['dispenser@jadeed.local', 'pharmacist@jadeed.local'])
+            ->first();
         if (! $pharmacist) {
             return;
         }

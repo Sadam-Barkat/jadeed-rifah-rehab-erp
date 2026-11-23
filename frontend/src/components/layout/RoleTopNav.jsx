@@ -31,6 +31,15 @@ const INVENTORY_TABS = [
   { to: '/app/inventory?tab=use', label: 'Use Stock', match: 'use' },
   { to: '/app/inventory?tab=receive', label: 'Receive Stock', match: 'receive' },
   { to: '/app/inventory?tab=levels', label: 'Stock Levels', match: 'levels' },
+  { to: '/app/inventory?tab=discard', label: 'Discard', match: 'discard' },
+]
+
+const DISPENSER_TABS = [
+  { to: '/app/pharmacy?tab=prescriptions', label: 'Prescriptions', match: 'prescriptions' },
+  { to: '/app/pharmacy?tab=drafts', label: 'Drafts', match: 'drafts' },
+  { to: '/app/pharmacy?tab=receive', label: 'Receive Stock', match: 'receive' },
+  { to: '/app/pharmacy?tab=levels', label: 'Stock Levels', match: 'levels' },
+  { to: '/app/pharmacy?tab=expired', label: 'Expired', match: 'expired' },
 ]
 
 function initials(name) {
@@ -72,9 +81,11 @@ export default function RoleTopNav({ onLogoutClick }) {
   const isReception = user?.role_slug === 'receptionist'
   const isGate = user?.role_slug === 'gatekeeper'
   const isInventoryManager = user?.role_slug === 'inventory-manager'
+  const isCook = user?.role_slug === 'cook'
+  const isDispenser = user?.role_slug === 'dispenser' || user?.role_slug === 'pharmacist'
   const items = useMemo(
-    () => (isFinance || isReception || isGate || isInventoryManager ? [] : navItemsForUser(user)),
-    [isFinance, isReception, isGate, isInventoryManager, user]
+    () => (isFinance || isReception || isGate || isInventoryManager || isCook || isDispenser ? [] : navItemsForUser(user)),
+    [isFinance, isReception, isGate, isInventoryManager, isCook, isDispenser, user]
   )
 
   useEffect(() => {
@@ -99,6 +110,11 @@ export default function RoleTopNav({ onLogoutClick }) {
     ? rawInventoryTab
     : 'use'
   const onInventory = location.pathname.startsWith('/app/inventory')
+  const rawPharmacyTab = params.get('tab') || 'prescriptions'
+  const pharmacyTab = DISPENSER_TABS.some((tab) => tab.match === rawPharmacyTab)
+    ? rawPharmacyTab
+    : 'prescriptions'
+  const onPharmacy = location.pathname.startsWith('/app/pharmacy')
 
   return (
     <>
@@ -168,15 +184,28 @@ export default function RoleTopNav({ onLogoutClick }) {
                         </NavLink>
                       )
                     })
-                  : items.map((item) => (
-                    <NavLink
-                      key={item.id}
-                      to={item.to}
-                      className={({ isActive }) => `role-nav-tab${isActive ? ' is-active' : ''}`}
-                    >
-                      {item.label}
-                    </NavLink>
-                  ))}
+                  : isDispenser
+                    ? DISPENSER_TABS.map((tab) => {
+                        const active = onPharmacy && pharmacyTab === tab.match
+                        return (
+                          <NavLink
+                            key={tab.match}
+                            to={tab.to}
+                            className={`role-nav-tab${active ? ' is-active' : ''}`}
+                          >
+                            {tab.label}
+                          </NavLink>
+                        )
+                      })
+                    : items.map((item) => (
+                      <NavLink
+                        key={item.id}
+                        to={item.to}
+                        className={({ isActive }) => `role-nav-tab${isActive ? ' is-active' : ''}`}
+                      >
+                        {item.label}
+                      </NavLink>
+                    ))}
         </nav>
 
         <div className="role-nav-right">

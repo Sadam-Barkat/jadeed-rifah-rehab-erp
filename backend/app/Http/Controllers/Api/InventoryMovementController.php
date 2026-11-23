@@ -75,12 +75,15 @@ class InventoryMovementController extends Controller
                 'purposes' => InventoryMovement::PURPOSES,
                 'departments' => InventoryMovement::DEPARTMENTS,
                 'staff' => $this->staffOptions(),
+                'cooks' => $this->cookOptions(),
             ],
         ]);
     }
 
     public function store(Request $request): JsonResponse
     {
+        $isCook = $request->user()?->role?->slug === 'cook';
+
         $data = $request->validate([
             'inventory_item_id' => ['required', 'exists:inventory_items,id'],
             'type' => ['required', Rule::in(['in', 'out', 'adjust'])],
@@ -103,6 +106,16 @@ class InventoryMovementController extends Controller
 
         $itemPreview = InventoryItem::query()->findOrFail($data['inventory_item_id']);
         $isBedsItem = $itemPreview->category === 'beds';
+
+        if ($isCook) {
+            if ($data['type'] !== 'out' || $itemPreview->category !== 'kitchen') {
+                return response()->json(['message' => 'Cooks can only use kitchen stock.'], 403);
+            }
+            $data['purpose'] = 'kitchen_use';
+            $data['department'] = 'kitchen';
+            $data['bed_id'] = null;
+            $data['bed_action'] = null;
+        }
 
         if ($data['type'] === 'in') {
             $request->validate([
@@ -312,7 +325,23 @@ class InventoryMovementController extends Controller
     {
         return User::query()
             ->where('is_active', true)
-            ->whereHas('role', fn ($q) => $q->where('slug', 'inventory-manager'))
+            ->whereHas('role', fn ($q) => $q->whereIn('slug', ['inventory-manager', 'cook']))
+            ->orderBy('name')
+            ->get(['id', 'name', 'staff_code'])
+            ->map(fn (User $u) => [
+                'id' => $u->id,
+                'name' => $u->name,
+                'staff_code' => $u->staff_code,
+            ])
+            ->values()
+            ->all();
+    }
+
+    private function cookOptions(): array
+    {
+        return User::query()
+            ->where('is_active', true)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'cook'))
             ->orderBy('name')
             ->get(['id', 'name', 'staff_code'])
             ->map(fn (User $u) => [

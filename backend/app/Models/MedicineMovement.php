@@ -17,6 +17,7 @@ class MedicineMovement extends Model
         'supplier',
         'unit_cost',
         'reference',
+        'bill_image_path',
         'notes',
         'moved_at',
         'created_by',

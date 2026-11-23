@@ -159,7 +159,7 @@ class MedicineMovementController extends Controller
     {
         return User::query()
             ->where('is_active', true)
-            ->whereHas('role', fn ($q) => $q->where('slug', 'pharmacist'))
+            ->whereHas('role', fn ($q) => $q->whereIn('slug', ['dispenser', 'pharmacist']))
             ->orderBy('name')
             ->get(['id', 'name', 'staff_code'])
             ->map(fn (User $u) => [

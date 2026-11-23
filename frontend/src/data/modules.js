@@ -5,8 +5,9 @@ export const ROLES = [
   'Doctor',
   'Nurse',
   'Finance',
-  'Pharmacist',
+  'Dispenser',
   'Inventory Manager',
+  'Cook',
 ]
 
 /** Admin sidebar only — overview tabs + management (not operational CRUD). */

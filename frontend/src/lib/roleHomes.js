@@ -6,8 +6,9 @@ export const ROLE_HOME_PATH = {
   doctor: '/app/home/doctor',
   nurse: '/app/home/nurse',
   finance: '/app/billing',
-  pharmacist: '/app/home/pharmacist',
+  dispenser: '/app/pharmacy?tab=prescriptions',
   'inventory-manager': '/app/inventory?tab=use',
+  cook: '/app/inventory?tab=use',
 }
 
 export function homePathForUser(user) {

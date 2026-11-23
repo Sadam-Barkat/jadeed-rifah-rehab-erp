@@ -26,3 +26,22 @@ export function formatPkrExact(amount) {
   const n = Number(amount || 0)
   return `PKR ${n.toLocaleString('en-PK', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
 }
+
+/** Days past expiry (null if no date or not yet expired). */
+export function medicineExpiryInfo(expiryDate) {
+  if (!expiryDate) return null
+  const raw = String(expiryDate).slice(0, 10)
+  const end = new Date(`${raw}T00:00:00`)
+  if (Number.isNaN(end.getTime())) return null
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const days = Math.floor((today.getTime() - end.getTime()) / 86400000)
+  if (days < 0) return null
+  if (days === 0) {
+    return { days: 0, label: 'Medicine expired today' }
+  }
+  return {
+    days,
+    label: `Medicine expired · ${days} day${days === 1 ? '' : 's'} ago`,
+  }
+}
