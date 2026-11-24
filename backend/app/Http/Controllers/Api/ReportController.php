@@ -804,8 +804,8 @@ class ReportController extends Controller
         $stockInQty = (int) (clone $stockInBase)->sum('quantity');
 
         $stockRows = (clone $medQuery)
+            ->orderBy('category')
             ->orderBy('name')
-            ->limit(200)
             ->get();
 
         $dispenseRows = MedicineDispense::query()
@@ -829,23 +829,35 @@ class ReportController extends Controller
             ->limit(100)
             ->get();
 
-        $medicineDetailRows = $stockRows->map(function (Medicine $m) {
+        $medicineBuckets = $stockRows->map(function (Medicine $m) {
             $status = (float) $m->stock_qty <= 0
                 ? 'Critical'
                 : ((float) $m->stock_qty <= (float) $m->reorder_level ? 'Low' : 'Good');
 
             return [
-                $m->medicine_code,
-                $m->name,
-                trim($m->stock_qty.' '.($m->unit ?: '')),
-                (string) $m->reorder_level,
-                $status,
+                'category' => $m->category ?: 'other',
+                'status' => $status,
+                'qty' => (int) $m->stock_qty,
+                'row' => [
+                    $m->medicine_code,
+                    $m->name.($m->strength ? ' · '.$m->strength : ''),
+                    trim($m->stock_qty.' '.($m->unit ?: '')),
+                    (string) $m->reorder_level,
+                    $status,
+                ],
             ];
-        })->values()->all();
+        });
 
-        $healthyDetailRows = array_values(array_filter($medicineDetailRows, fn ($r) => $r[4] === 'Good'));
-        $lowDetailRows = array_values(array_filter($medicineDetailRows, fn ($r) => in_array($r[4], ['Low', 'Critical'], true)));
-        $criticalDetailRows = array_values(array_filter($medicineDetailRows, fn ($r) => $r[4] === 'Critical'));
+        $allMedicineGroups = $this->medicineStockGroups($medicineBuckets);
+        $healthyMedicineGroups = $this->medicineStockGroups(
+            $medicineBuckets->filter(fn ($r) => $r['status'] === 'Good')->values()
+        );
+        $lowMedicineGroups = $this->medicineStockGroups(
+            $medicineBuckets->filter(fn ($r) => in_array($r['status'], ['Low', 'Critical'], true))->values()
+        );
+        $criticalMedicineGroups = $this->medicineStockGroups(
+            $medicineBuckets->filter(fn ($r) => $r['status'] === 'Critical')->values()
+        );
 
         $dispenseDetailRows = $dispenseRows->map(function (MedicineDispense $d) {
             $patient = trim(($d->patient?->first_name ?? '').' '.($d->patient?->last_name ?? ''));
@@ -881,7 +893,7 @@ class ReportController extends Controller
         }
 
         return [
-            'title' => 'Pharmacy overview',
+            'title' => 'Dispenser overview',
             'card_mode' => 'modal',
             'staff_filter' => true,
             'kpis' => [
@@ -891,13 +903,7 @@ class ReportController extends Controller
                     'value' => $totalMeds,
                     'meta' => 'Active stock',
                     'tone' => 'blue',
-                    'detail' => [
-                        'title' => 'Medicines',
-                        'columns' => ['Code', 'Name', 'Qty', 'Reorder', 'Status'],
-                        'allow_filter' => false,
-                        'search_placeholder' => 'Search by name',
-                        'rows' => $medicineDetailRows,
-                    ],
+                    'detail' => $this->medicineGroupDetail('Medicines', $allMedicineGroups),
                 ],
                 [
                     'key' => 'healthy',
@@ -905,13 +911,7 @@ class ReportController extends Controller
                     'value' => $healthy,
                     'meta' => $totalMeds > 0 ? "{$healthyPct}% of active" : 'Above reorder',
                     'tone' => 'green',
-                    'detail' => [
-                        'title' => 'Healthy stock',
-                        'columns' => ['Code', 'Name', 'Qty', 'Reorder', 'Status'],
-                        'allow_filter' => false,
-                        'search_placeholder' => 'Search by name',
-                        'rows' => $healthyDetailRows,
-                    ],
+                    'detail' => $this->medicineGroupDetail('Healthy stock', $healthyMedicineGroups),
                 ],
                 [
                     'key' => 'low',
@@ -923,13 +923,7 @@ class ReportController extends Controller
                     'alert_text' => $low > 0
                         ? "{$low} medicine(s) need restock"
                         : null,
-                    'detail' => [
-                        'title' => 'Low stock',
-                        'columns' => ['Code', 'Name', 'Qty', 'Reorder', 'Status'],
-                        'allow_filter' => false,
-                        'search_placeholder' => 'Search by name',
-                        'rows' => $lowDetailRows,
-                    ],
+                    'detail' => $this->medicineGroupDetail('Low stock', $lowMedicineGroups),
                 ],
                 [
                     'key' => 'critical',
@@ -941,13 +935,7 @@ class ReportController extends Controller
                     'alert_text' => $critical > 0
                         ? "{$critical} medicine(s) out of stock"
                         : null,
-                    'detail' => [
-                        'title' => 'Critical medicines',
-                        'columns' => ['Code', 'Name', 'Qty', 'Reorder', 'Status'],
-                        'allow_filter' => false,
-                        'search_placeholder' => 'Search by name',
-                        'rows' => $criticalDetailRows,
-                    ],
+                    'detail' => $this->medicineGroupDetail('Critical medicines', $criticalMedicineGroups),
                 ],
                 [
                     'key' => 'stock_in',
@@ -2560,6 +2548,71 @@ class ReportController extends Controller
         return trim($formatted.' '.($unit ?: ''));
     }
 
+    /** Group medicine KPI rows by category (stock-level style expand). */
+    private function medicineStockGroups($buckets): array
+    {
+        $byCat = [];
+        foreach ($buckets as $item) {
+            $key = (string) ($item['category'] ?? 'other');
+            if (! isset($byCat[$key])) {
+                $byCat[$key] = [
+                    'key' => $key,
+                    'label' => Medicine::categoryLabel($key),
+                    'item_count' => 0,
+                    'total_qty' => 0,
+                    'low_count' => 0,
+                    'rows' => [],
+                ];
+            }
+            $byCat[$key]['item_count']++;
+            $byCat[$key]['total_qty'] += (int) ($item['qty'] ?? 0);
+            if (in_array($item['status'] ?? '', ['Low', 'Critical'], true)) {
+                $byCat[$key]['low_count']++;
+            }
+            $byCat[$key]['rows'][] = $item['row'];
+        }
+
+        $groups = array_values($byCat);
+        usort($groups, fn ($a, $b) => strcasecmp($a['label'], $b['label']));
+
+        return array_map(function (array $group) {
+            $status = $group['low_count'] > 0
+                ? ($group['low_count'] === $group['item_count'] ? 'Low stock' : 'Mixed')
+                : 'OK';
+
+            return [
+                'key' => $group['key'],
+                'label' => $group['label'],
+                'item_count' => $group['item_count'],
+                'total_qty' => $group['total_qty'],
+                'status' => $status,
+                'low_count' => $group['low_count'],
+                'rows' => $group['rows'],
+            ];
+        }, $groups);
+    }
+
+    private function medicineGroupDetail(string $title, array $groups): array
+    {
+        $flatRows = [];
+        foreach ($groups as $group) {
+            foreach ($group['rows'] as $row) {
+                $flatRows[] = $row;
+            }
+        }
+
+        return [
+            'title' => $title,
+            'presentation' => 'groups',
+            'columns' => ['Code', 'Name', 'Qty', 'Reorder', 'Status'],
+            'group_columns' => ['Category', 'Items', 'Total qty', 'Status'],
+            'allow_filter' => false,
+            'search_placeholder' => 'Search name or category',
+            'groups' => $groups,
+            'rows' => $flatRows,
+        ];
+    }
+
     private function staffOptionsByRole(array $roleSlugs): array
     {
         return User::query()
@@ -2728,8 +2781,35 @@ class ReportController extends Controller
         return $from->format('j M Y').' – '.$to->format('j M Y');
     }
 
+    /**
+     * When filter range ends in the future (e.g. current month → last day),
+     * charts show a rolling last-5-days window ending today.
+     *
+     * @return array{0: Carbon, 1: Carbon}
+     */
+    private function chartWindow(Carbon $from, Carbon $to): array
+    {
+        $today = now()->copy()->startOfDay();
+        $from = $from->copy()->startOfDay();
+        $to = $to->copy()->startOfDay();
+
+        if ($to->greaterThan($today) && $from->lessThanOrEqualTo($today)) {
+            $chartTo = $today;
+            $chartFrom = $today->copy()->subDays(4);
+            if ($chartFrom->lt($from)) {
+                $chartFrom = $from->copy();
+            }
+
+            return [$chartFrom, $chartTo];
+        }
+
+        return [$from, $to];
+    }
+
     private function countSeries($query, string $column, Carbon $from, Carbon $to): array
     {
+        [$from, $to] = $this->chartWindow($from, $to);
+
         if ($from->diffInDays($to) > 45) {
             $rows = (clone $query)
                 ->selectRaw('DATE_FORMAT('.$column.', "%Y-%m") as d, COUNT(*) as c')
@@ -2845,6 +2925,7 @@ class ReportController extends Controller
     /** Only dates/months that have real events (no empty placeholder dates). */
     private function sparseCountSeries($query, string $column, Carbon $from, Carbon $to): array
     {
+        [$from, $to] = $this->chartWindow($from, $to);
         $spanDays = $from->diffInDays($to);
         if ($spanDays > 45) {
             $rows = (clone $query)
@@ -2896,6 +2977,8 @@ class ReportController extends Controller
 
     private function sumExprSeries($query, string $column, string $sumExpr, Carbon $from, Carbon $to): array
     {
+        [$from, $to] = $this->chartWindow($from, $to);
+
         if ($from->diffInDays($to) > 45) {
             $rows = (clone $query)
                 ->selectRaw('DATE_FORMAT('.$column.', "%Y-%m") as d, COALESCE('.$sumExpr.',0) as c')

@@ -143,7 +143,7 @@ export default function Sidebar({ open, collapsed, onNavigate, onToggleCollapse 
                   title={
                     hasAlert
                       ? item.id === 'admin-pharmacy'
-                        ? 'Pharmacy — low medicine stock, restock needed'
+                        ? 'Dispenser — low medicine stock, restock needed'
                         : item.id === 'admin-inventory'
                           ? 'Inventory — low stock items, restock needed'
                           : `${item.name} — alert`

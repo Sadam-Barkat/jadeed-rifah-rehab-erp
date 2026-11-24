@@ -14,7 +14,7 @@ export const ROLES = [
 export const ADMIN_NAV = [
   { id: 'owner-dashboard', name: 'Overview', path: '/app/owner-dashboard' },
   { id: 'admin-patients', name: 'Patients & Beds', path: '/app/admin/patients-beds' },
-  { id: 'admin-pharmacy', name: 'Pharmacy', path: '/app/admin/pharmacy' },
+  { id: 'admin-pharmacy', name: 'Dispenser', path: '/app/admin/pharmacy' },
   { id: 'admin-inventory', name: 'Inventory', path: '/app/admin/inventory' },
   { id: 'admin-finance', name: 'Billing & Finance', path: '/app/admin/finance' },
   { id: 'admin-visitors', name: 'Visitors', path: '/app/admin/visitors' },

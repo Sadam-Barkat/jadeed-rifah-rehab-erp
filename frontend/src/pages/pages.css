@@ -887,9 +887,14 @@ html[data-theme='dark'] .password-toggle:hover {
   max-height: min(55vh, 520px);
 }
 
+.scroll-panel:has(.stock-level-table) {
+  padding: 8px 12px 12px;
+}
+
 .stock-level-table {
   border-collapse: separate;
   border-spacing: 0 8px;
+  width: 100%;
 }
 
 .stock-level-table thead th {
@@ -907,12 +912,12 @@ html[data-theme='dark'] .password-toggle:hover {
 
 .stock-level-table .stock-level-row td:first-child {
   border-left: 1px solid var(--color-border);
-  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  border-radius: 10px 0 0 10px;
 }
 
 .stock-level-table .stock-level-row td:last-child {
   border-right: 1px solid var(--color-border);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  border-radius: 0 10px 10px 0;
 }
 
 .stock-level-table .stock-level-row:hover td {
@@ -925,11 +930,11 @@ html[data-theme='dark'] .password-toggle:hover {
 }
 
 .stock-level-table .stock-level-row.is-open td:first-child {
-  border-radius: var(--radius-sm) 0 0 0;
+  border-radius: 10px 0 0 0;
 }
 
 .stock-level-table .stock-level-row.is-open td:last-child {
-  border-radius: 0 var(--radius-sm) 0 0;
+  border-radius: 0 10px 0 0;
 }
 
 .stock-level-table .stock-level-row.is-low td {
@@ -951,7 +956,7 @@ html[data-theme='dark'] .password-toggle:hover {
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-top: 0;
-  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  border-radius: 0 0 10px 10px;
   vertical-align: top;
 }
 
@@ -1135,34 +1140,6 @@ html[data-theme='dark'] .password-toggle:hover {
 .stock-avail-note.is-expiry {
   color: #b54708;
   font-weight: 600;
-}
-
-.expired-med-table {
-  border-collapse: separate;
-  border-spacing: 0 8px;
-}
-
-.expired-med-table thead th {
-  border-bottom: 0;
-  padding-bottom: 4px;
-}
-
-.expired-med-table .expired-med-row td {
-  background: #fffaeb;
-  border-top: 1px solid #f5d0a8;
-  border-bottom: 1px solid #f5d0a8;
-  padding-top: 12px;
-  padding-bottom: 12px;
-}
-
-.expired-med-table .expired-med-row td:first-child {
-  border-left: 1px solid #f5d0a8;
-  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
-}
-
-.expired-med-table .expired-med-row td:last-child {
-  border-right: 1px solid #f5d0a8;
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
 .med-picker-name {
@@ -1807,6 +1784,42 @@ html[data-theme='dark'] .password-toggle:hover {
   min-width: 100%;
   max-width: none;
   table-layout: auto;
+}
+
+.kpi-modal-scroll .data-table.stock-level-table {
+  width: 100%;
+  min-width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+}
+
+.kpi-modal-scroll .stock-level-table th:nth-child(1),
+.kpi-modal-scroll .stock-level-table td:nth-child(1) {
+  width: 40px;
+}
+
+.kpi-modal-scroll .stock-level-table th:nth-child(2),
+.kpi-modal-scroll .stock-level-table td:nth-child(2) {
+  width: 38%;
+}
+
+.kpi-modal-scroll .stock-level-table th:nth-child(3),
+.kpi-modal-scroll .stock-level-table td:nth-child(3) {
+  width: 14%;
+}
+
+.kpi-modal-scroll .stock-level-table th:nth-child(4),
+.kpi-modal-scroll .stock-level-table td:nth-child(4) {
+  width: 18%;
+}
+
+.kpi-modal-scroll .stock-level-table th:nth-child(5),
+.kpi-modal-scroll .stock-level-table td:nth-child(5) {
+  width: auto;
+}
+
+.kpi-modal-scroll .stock-level-table .stock-level-row td {
+  white-space: normal;
 }
 
 .kpi-modal-scroll .data-table th,

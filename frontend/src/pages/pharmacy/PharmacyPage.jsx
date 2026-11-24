@@ -1218,7 +1218,7 @@ export default function PharmacyPage() {
                 <p className="panel-copy">No expired batches for this filter.</p>
               ) : (
                 <div className="scroll-panel dash-scroll-panel pharmacy-orders-scroll">
-                  <table className="data-table expired-med-table">
+                  <table className="data-table stock-level-table" style={{ minWidth: 0 }}>
                     <thead>
                       <tr>
                         <th>Code</th>
@@ -1232,7 +1232,7 @@ export default function PharmacyPage() {
                     </thead>
                     <tbody>
                       {expiredRows.map((row) => (
-                        <tr key={row.id} className="expired-med-row">
+                        <tr key={row.id} className="stock-level-row is-low">
                           <td>{row.medicine?.medicine_code || '—'}</td>
                           <td>
                             {row.medicine?.name || '—'}

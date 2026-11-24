@@ -70,7 +70,7 @@ export default function App() {
               <Route path="home/inventory" element={<Navigate to="/app/inventory?tab=use" replace />} />
               <Route path="owner-dashboard" element={<OwnerDashboard />} />
               <Route path="admin/patients-beds" element={<AdminSectionPage section="patients" fallbackTitle="Patients & beds overview" />} />
-              <Route path="admin/pharmacy" element={<AdminSectionPage section="pharmacy" fallbackTitle="Pharmacy overview" />} />
+              <Route path="admin/pharmacy" element={<AdminSectionPage section="pharmacy" fallbackTitle="Dispenser overview" />} />
               <Route path="admin/inventory" element={<AdminSectionPage section="inventory" fallbackTitle="Inventory overview" />} />
               <Route path="admin/finance" element={<AdminSectionPage section="finance" fallbackTitle="Billing & finance overview" />} />
               <Route path="admin/visitors" element={<AdminSectionPage section="visitors" fallbackTitle="Visitors overview" />} />

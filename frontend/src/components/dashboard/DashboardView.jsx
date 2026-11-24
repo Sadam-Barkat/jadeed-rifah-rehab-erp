@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { Fragment, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Printer } from 'lucide-react'
 import { formatPkr } from '../../lib/format'
@@ -19,11 +19,11 @@ function statusClass(value) {
     .trim()
     .toLowerCase()
   if (['critical', 'out of stock', 'danger', 'unpaid', 'archived', 'inactive', 'occupied'].includes(v)) return 'badge-danger'
-  if (['low', 'low stock', 'warning', 'partial', 'pending', 'registered', 'rejected', 'checked_in'].includes(v)) {
+  if (['low', 'low stock', 'mixed', 'warning', 'partial', 'pending', 'registered', 'rejected', 'checked_in'].includes(v)) {
     return 'badge-warn'
   }
   if (
-    ['good', 'active', 'paid', 'completed', 'success', 'admitted', 'approved', 'checked_out', 'available'].includes(
+    ['good', 'ok', 'active', 'paid', 'completed', 'success', 'admitted', 'approved', 'checked_out', 'available'].includes(
       v
     )
   ) {
@@ -46,7 +46,9 @@ function DetailModal({ open, detail, onClose }) {
   const [typeFilter, setTypeFilter] = useState('all')
   const [nameFilter, setNameFilter] = useState('all')
   const [staffFilter, setStaffFilter] = useState('all')
+  const [openGroup, setOpenGroup] = useState(null)
   const deferredQuery = useDeferredValue(query)
+  const isGrouped = detail?.presentation === 'groups'
 
   useEffect(() => {
     if (!open) return
@@ -54,12 +56,14 @@ function DetailModal({ open, detail, onClose }) {
     setTypeFilter('all')
     setNameFilter('all')
     setStaffFilter('all')
+    setOpenGroup(null)
   }, [open, detail?.title])
 
   const filterCol = detail?.filter_column ?? detail?.filterColumn
   const staffCol = detail?.staff_filter_column ?? detail?.staffFilterColumn
   const nameCol = detail?.name_filter_column ?? detail?.nameFilterColumn
   const columns = detail?.columns || []
+  const groupColumns = detail?.group_columns || ['Category', 'Items', 'Total qty', 'Status']
   const colIndex = findColumnIndex(columns, filterCol)
   const resolvedFilterCol = colIndex >= 0 ? colIndex : Math.max(0, columns.length - 1)
 
@@ -81,10 +85,10 @@ function DetailModal({ open, detail, onClose }) {
     return columns.findIndex((c) => String(c).toLowerCase().includes('recorded'))
   }, [columns, staffCol])
 
-  const allowTypeFilter = detail?.allow_filter !== false
-  const hasNameFilter = detail?.allow_name_filter === true && nameColIndex >= 0 && nameColIndex !== resolvedFilterCol
+  const allowTypeFilter = !isGrouped && detail?.allow_filter !== false
+  const hasNameFilter = !isGrouped && detail?.allow_name_filter === true && nameColIndex >= 0 && nameColIndex !== resolvedFilterCol
   const hasStaffFilter =
-    staffColIndex >= 0 && staffColIndex !== resolvedFilterCol && staffColIndex !== nameColIndex
+    !isGrouped && staffColIndex >= 0 && staffColIndex !== resolvedFilterCol && staffColIndex !== nameColIndex
   const searchPlaceholder = detail?.search_placeholder || 'Search'
 
   const uniqueValues = (index) => {
@@ -128,8 +132,29 @@ function DetailModal({ open, detail, onClose }) {
     staffColIndex,
   ])
 
+  const groups = useMemo(() => {
+    if (!isGrouped) return []
+    const q = deferredQuery.trim().toLowerCase()
+    return (detail?.groups || [])
+      .map((group) => {
+        const filteredRows = (group.rows || []).filter((row) => {
+          if (!q) return true
+          if (String(group.label || '').toLowerCase().includes(q)) return true
+          return row.some((cell) => String(cell ?? '').toLowerCase().includes(q))
+        })
+        if (q && filteredRows.length === 0 && !String(group.label || '').toLowerCase().includes(q)) {
+          return null
+        }
+        return { ...group, rows: q ? filteredRows : group.rows || [] }
+      })
+      .filter(Boolean)
+  }, [detail, deferredQuery, isGrouped])
+
   const nameLabel = hasNameFilter ? String(columns[nameColIndex] || 'Name') : 'Name'
   const modalTitle = detail?.title || 'Details'
+  const countLabel = isGrouped
+    ? `${groups.length} categor${groups.length === 1 ? 'y' : 'ies'}`
+    : `${rows.length} row(s)`
 
   return (
     <Modal open={open} title={modalTitle} onClose={onClose} size="md" hideFooter>
@@ -188,16 +213,98 @@ function DetailModal({ open, detail, onClose }) {
           <button
             type="button"
             className="ui-icon-btn kpi-modal-print"
-            onClick={() => printReportTable({ title: modalTitle, columns, rows })}
+            onClick={() => printReportTable({ title: modalTitle, columns, rows: isGrouped ? (detail?.rows || []) : rows })}
             aria-label="Print"
             title="Print"
           >
             <Printer size={18} />
           </button>
         </div>
-        <p className="panel-meta kpi-modal-count">{rows.length} row(s)</p>
+        <p className="panel-meta kpi-modal-count">{countLabel}</p>
       </div>
-      {rows.length === 0 ? (
+      {isGrouped ? (
+        groups.length === 0 ? (
+          <p className="panel-copy">No categories</p>
+        ) : (
+          <div className="scroll-panel dash-scroll-panel kpi-modal-scroll">
+            <table className="data-table stock-level-table" style={{ minWidth: 0 }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 36 }} aria-hidden />
+                  {groupColumns.map((col) => (
+                    <th key={col}>{col}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {groups.map((group) => {
+                  const open = openGroup === group.key
+                  const low = Number(group.low_count || 0) > 0
+                  return (
+                    <Fragment key={group.key}>
+                      <tr
+                        className={`stock-level-row${low ? ' is-low' : ''}${open ? ' is-open' : ''}`}
+                        onClick={() => setOpenGroup(open ? null : group.key)}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <td className="stock-level-toggle">{open ? '−' : '+'}</td>
+                        <td>{group.label}</td>
+                        <td>{group.item_count}</td>
+                        <td>{group.total_qty}</td>
+                        <td>
+                          <span className={`badge ${statusClass(group.status) || (low ? 'badge-warn' : 'badge-ok')}`}>
+                            {group.status || (low ? 'Low stock' : 'OK')}
+                          </span>
+                        </td>
+                      </tr>
+                      {open ? (
+                        <tr className="stock-level-expand">
+                          <td colSpan={groupColumns.length + 1}>
+                            {(group.rows || []).length === 0 ? (
+                              <p className="panel-copy">No medicines in this category.</p>
+                            ) : (
+                              <table className="data-table stock-level-inner" style={{ minWidth: 0 }}>
+                                <thead>
+                                  <tr>
+                                    {columns.map((col) => (
+                                      <th key={`${group.key}-${col}`}>{col}</th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {(group.rows || []).map((row, idx) => (
+                                    <tr
+                                      key={`${group.key}-${idx}`}
+                                      className={String(row?.[row.length - 1] || '').toLowerCase().includes('low') || String(row?.[row.length - 1] || '').toLowerCase() === 'critical' ? 'is-low-med' : undefined}
+                                    >
+                                      {row.map((cell, cIdx) => {
+                                        const colName = String(columns[cIdx] || '')
+                                        return (
+                                          <td key={`${group.key}-${idx}-${cIdx}`}>
+                                            {(colName.toLowerCase() === 'status' || cIdx === row.length - 1) && statusClass(cell) ? (
+                                              <span className={`badge ${statusClass(cell)}`}>{cell}</span>
+                                            ) : (
+                                              cell
+                                            )}
+                                          </td>
+                                        )
+                                      })}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )
+      ) : rows.length === 0 ? (
         <p className="panel-copy">No rows</p>
       ) : (
         <div className="scroll-panel dash-scroll-panel kpi-modal-scroll">

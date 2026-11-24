@@ -30,7 +30,8 @@ function lastDayOfMonth(year, month) {
 
 /**
  * Resolve range while keeping year/month/date selections together.
- * Priority: date > year+month > year > 7d > all (default overall data).
+ * Priority: date > year+month > year > 7d > all.
+ * Default UI load uses current year + month (see defaultRange).
  */
 export function resolveFilter(filter = {}) {
   const year = filter.year || ''
@@ -129,7 +130,10 @@ export function resolveFilter(filter = {}) {
 }
 
 export function defaultRange() {
-  return resolveFilter({ mode: 'all', minYear: String(new Date().getFullYear()) })
+  const now = new Date()
+  const year = String(now.getFullYear())
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  return resolveFilter({ mode: 'month', year, month, minYear: year })
 }
 
 export default function DateRangeFilter({
@@ -178,18 +182,7 @@ export default function DateRangeFilter({
           setYearOptions(list)
           const earliest = list[0]
           setMinYear(earliest)
-          // First load: if still on default all with this-year min, expand to overall data.
-          if ((!value || value.mode === 'all') && (!value?.year && !value?.month && !value?.date)) {
-            const next = resolveFilter({
-              mode: 'all',
-              minYear: earliest,
-              created_by: createdBy,
-              spent_for: spentFor,
-              bill_type: billType,
-            })
-            setMode('all')
-            onApply?.(next)
-          }
+          // Keep current year+month default; only sync minYear for "all time" / Reset.
         }
       } catch {
         if (alive && (!years || !years.length)) {
