@@ -23,6 +23,17 @@ export function AuthProvider({ children }) {
     else applyTheme('light', null)
   }, [user?.id])
 
+  async function signOutLocalAndServer() {
+    try {
+      if (getToken()) await api('/logout', { method: 'POST' })
+    } catch {
+      // ignore network logout errors
+    }
+    clearToken()
+    setUser(null)
+    applyTheme('light', null)
+  }
+
   useEffect(() => {
     let cancelled = false
 
@@ -33,9 +44,8 @@ export function AuthProvider({ children }) {
       }
 
       if (isSessionExpired()) {
-        clearToken()
-        setUser(null)
-        setBooting(false)
+        await signOutLocalAndServer()
+        if (!cancelled) setBooting(false)
         return
       }
 
@@ -79,8 +89,7 @@ export function AuthProvider({ children }) {
 
     const timer = window.setInterval(() => {
       if (isSessionExpired()) {
-        clearToken()
-        setUser(null)
+        signOutLocalAndServer()
       }
     }, 30000)
 
@@ -128,14 +137,7 @@ export function AuthProvider({ children }) {
         return data.user
       },
       async logout() {
-        try {
-          if (getToken()) await api('/logout', { method: 'POST' })
-        } catch {
-          // ignore network logout errors
-        }
-        clearToken()
-        setUser(null)
-        applyTheme('light', null)
+        await signOutLocalAndServer()
       },
     }),
     [user, booting],

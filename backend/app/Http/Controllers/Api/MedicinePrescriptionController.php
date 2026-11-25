@@ -23,6 +23,7 @@ class MedicinePrescriptionController extends Controller
         $perPage = min(max((int) $request->integer('per_page', 20), 1), 50);
         $slug = $request->user()?->role?->slug;
         $isDispenser = in_array($slug, ['dispenser', 'pharmacist'], true);
+        $isNurse = $slug === 'nurse';
 
         $query = MedicinePrescription::query()
             ->with([
@@ -32,20 +33,37 @@ class MedicinePrescriptionController extends Controller
                 'nurse:id,name,staff_code',
                 'prescriber:id,name,staff_code',
                 'dispenser:id,name,staff_code',
+                'administeredBy:id,name,staff_code',
                 'items.medicine' => $this->medicineWithExpiry(),
             ])
             ->latest('prescribed_at');
 
-        if (! $isDispenser && $slug === 'doctor') {
+        if ($isNurse) {
+            $query->whereIn('status', ['dispensed', 'administered'])
+                ->where(function ($q) use ($request) {
+                    $q->where('nurse_id', $request->user()->id)
+                        ->orWhereNull('nurse_id');
+                });
+            if (! $request->filled('status')) {
+                $query->where('status', 'dispensed');
+            }
+        } elseif (! $isDispenser && \App\Support\ClinicalDoctor::isClinical($slug)) {
             $query->where('prescribed_by', $request->user()->id);
-        }
-
-        if ($status = $request->get('status')) {
-            $query->where('status', $status);
         }
 
         if ($prescribedBy = $request->integer('prescribed_by')) {
             $query->where('prescribed_by', $prescribedBy);
+        }
+
+        if ($dispensedBy = $request->integer('dispensed_by')) {
+            $query->where('dispensed_by', $dispensedBy);
+        }
+
+        if ($nurseId = $request->integer('nurse_id')) {
+            $query->where(function ($q) use ($nurseId) {
+                $q->where('nurse_id', $nurseId)
+                    ->orWhere('administered_by', $nurseId);
+            });
         }
 
         if ($from = $request->get('from')) {
@@ -83,6 +101,80 @@ class MedicinePrescriptionController extends Controller
             });
         }
 
+        // Doctor track tabs: pending | dispensed | given
+        $track = trim((string) $request->get('track', ''));
+        if ($track === 'pending') {
+            $query->where('status', 'pending');
+        } elseif ($track === 'dispensed') {
+            $query->where('status', 'dispensed');
+        } elseif ($track === 'given') {
+            $query->where('status', 'administered');
+        } elseif ($status = $request->get('status')) {
+            $query->where('status', $status);
+        }
+
+        // Rebuild count base without track/status so tab badges stay accurate.
+        $countBase = MedicinePrescription::query();
+        if ($isNurse) {
+            $countBase->whereIn('status', ['dispensed', 'administered'])
+                ->where(function ($q) use ($request) {
+                    $q->where('nurse_id', $request->user()->id)
+                        ->orWhereNull('nurse_id');
+                });
+        } elseif (! $isDispenser && \App\Support\ClinicalDoctor::isClinical($slug)) {
+            $countBase->where('prescribed_by', $request->user()->id);
+        }
+        if ($prescribedBy = $request->integer('prescribed_by')) {
+            $countBase->where('prescribed_by', $prescribedBy);
+        }
+        if ($dispensedBy = $request->integer('dispensed_by')) {
+            $countBase->where('dispensed_by', $dispensedBy);
+        }
+        if ($nurseId = $request->integer('nurse_id')) {
+            $countBase->where(function ($q) use ($nurseId) {
+                $q->where('nurse_id', $nurseId)
+                    ->orWhere('administered_by', $nurseId);
+            });
+        }
+        if ($from = $request->get('from')) {
+            $countBase->whereDate('prescribed_at', '>=', $from);
+        }
+        if ($to = $request->get('to')) {
+            $countBase->whereDate('prescribed_at', '<=', $to);
+        }
+        if ($date = $request->get('date')) {
+            $countBase->whereDate('prescribed_at', $date);
+        } else {
+            if ($year = $request->integer('year')) {
+                $countBase->whereYear('prescribed_at', $year);
+            }
+            if ($month = $request->integer('month')) {
+                $countBase->whereMonth('prescribed_at', $month);
+            }
+        }
+        if ($search = trim((string) $request->get('search', ''))) {
+            $countBase->where(function ($q) use ($search) {
+                $q->where('prescription_code', 'like', "%{$search}%")
+                    ->orWhereHas('patient', function ($pq) use ($search) {
+                        $pq->where('patient_code', 'like', "%{$search}%")
+                            ->orWhere('first_name', 'like', "%{$search}%")
+                            ->orWhere('last_name', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('prescriber', function ($uq) use ($search) {
+                        $uq->where('name', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('items', function ($iq) use ($search) {
+                        $iq->where('medicine_name', 'like', "%{$search}%");
+                    });
+            });
+        }
+
+        $trackCounts = [
+            'pending' => (clone $countBase)->where('status', 'pending')->count(),
+            'dispensed' => (clone $countBase)->where('status', 'dispensed')->count(),
+            'given' => (clone $countBase)->where('status', 'administered')->count(),
+        ];
+
         $paginator = $query->paginate($perPage);
 
         $availableYears = MedicinePrescription::query()
@@ -94,6 +186,24 @@ class MedicinePrescriptionController extends Controller
             ->values()
             ->all();
 
+        $dispensers = User::query()
+            ->where('is_active', true)
+            ->whereHas('role', fn ($q) => $q->whereIn('slug', ['dispenser', 'pharmacist']))
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->map(fn (User $u) => ['id' => $u->id, 'name' => $u->name])
+            ->values()
+            ->all();
+
+        $nurses = User::query()
+            ->where('is_active', true)
+            ->whereHas('role', fn ($q) => $q->where('slug', 'nurse'))
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->map(fn (User $u) => ['id' => $u->id, 'name' => $u->name])
+            ->values()
+            ->all();
+
         return response()->json([
             'data' => collect($paginator->items())->map(fn (MedicinePrescription $rx) => $this->payload($rx)),
             'meta' => [
@@ -102,6 +212,9 @@ class MedicinePrescriptionController extends Controller
                 'per_page' => $paginator->perPage(),
                 'total' => $paginator->total(),
                 'available_years' => $availableYears,
+                'dispensers' => $dispensers,
+                'nurses' => $nurses,
+                'track_counts' => $trackCounts,
             ],
         ]);
     }
@@ -127,7 +240,6 @@ class MedicinePrescriptionController extends Controller
     {
         $data = $request->validate([
             'admission_id' => ['required', 'exists:admissions,id'],
-            'nurse_id' => ['required', 'exists:users,id'],
             'notes' => ['nullable', 'string'],
             'items' => ['nullable', 'array'],
             'items.*.medicine_id' => ['nullable', 'exists:medicines,id'],
@@ -140,11 +252,6 @@ class MedicinePrescriptionController extends Controller
         ], SecureUpload::maxMessages([
             'handwritten_image' => 'Prescription image',
         ]));
-
-        $nurse = User::query()->with('role:id,slug')->findOrFail($data['nurse_id']);
-        if ($nurse->role?->slug !== 'nurse' || ! $nurse->is_active) {
-            return response()->json(['message' => 'Select an active nurse.'], 422);
-        }
 
         $items = array_values(array_filter(
             $data['items'] ?? [],
@@ -159,8 +266,11 @@ class MedicinePrescriptionController extends Controller
         }
 
         foreach ($items as $i => $line) {
-            if (empty($line['medicine_id']) && trim((string) ($line['medicine_name'] ?? '')) === '') {
-                return response()->json(['message' => 'Medicine name is required on each line.'], 422);
+            if (empty($line['medicine_id'])) {
+                return response()->json(['message' => 'Select a medicine from the list on each line.'], 422);
+            }
+            if (! Medicine::query()->whereKey((int) $line['medicine_id'])->where('status', 'active')->exists()) {
+                return response()->json(['message' => 'One or more medicines are not available.'], 422);
             }
             if (empty($line['quantity']) || (int) $line['quantity'] < 1) {
                 return response()->json(['message' => 'Quantity is required on each medicine line.'], 422);
@@ -185,7 +295,7 @@ class MedicinePrescriptionController extends Controller
                 'admission_id' => $admission->id,
                 'patient_id' => $admission->patient_id,
                 'doctor_id' => $doctor?->id,
-                'nurse_id' => (int) $data['nurse_id'],
+                'nurse_id' => null,
                 'status' => 'pending',
                 'notes' => $data['notes'] ?? null,
                 'handwritten_image_path' => $imagePath,
@@ -251,6 +361,7 @@ class MedicinePrescriptionController extends Controller
             'nurse:id,name,staff_code',
             'prescriber:id,name,staff_code',
             'dispenser:id,name,staff_code',
+            'administeredBy:id,name,staff_code',
             'items.medicine' => $this->medicineWithExpiry(),
         ]);
 
@@ -390,26 +501,91 @@ class MedicinePrescriptionController extends Controller
 
         $patientName = $prescription->patient?->full_name ?: 'Patient';
         $doctorName = $this->doctorName($prescription);
-        $notifyIds = $prescription->nurse_id
-            ? [$prescription->nurse_id]
-            : User::query()
-                ->where('is_active', true)
-                ->whereHas('role', fn ($q) => $q->where('slug', 'nurse'))
-                ->pluck('id')
-                ->all();
-        app(AppNotifier::class)->notifyUsers(
-            $notifyIds,
+        $dispenserName = $prescription->dispenser?->name ?: 'Dispenser';
+        // Any logged-in nurse on duty can take the slip (no pre-assignment).
+        app(AppNotifier::class)->notifyRoleSlugs(
+            ['nurse'],
             'pharmacy.prescription_ready',
-            'Medicine ready for nurse',
-            "{$prescription->prescription_code} · {$patientName} · {$doctorName}",
+            'Medicine slip ready',
+            "{$prescription->prescription_code} · {$patientName} · {$doctorName} · open digital slip",
             '/app/medicine-slips/'.$prescription->id,
             ['medicine_prescription_id' => $prescription->id],
             $request->user()->id,
         );
 
+        if ($prescription->prescribed_by) {
+            app(AppNotifier::class)->notifyUsers(
+                [$prescription->prescribed_by],
+                'pharmacy.prescription_dispensed',
+                'Medicine dispensed',
+                "{$prescription->prescription_code} · {$patientName} · dispensed by {$dispenserName}",
+                '/app/doctors?tab=prescribe&track=dispensed',
+                [
+                    'medicine_prescription_id' => $prescription->id,
+                    'patient_id' => $prescription->patient_id,
+                    'status' => 'dispensed',
+                ],
+                $request->user()->id,
+            );
+        }
+
         return response()->json([
             'message' => 'Prescription dispensed',
             'data' => $this->payload($prescription),
+        ]);
+    }
+
+    public function administer(Request $request, MedicinePrescription $medicinePrescription): JsonResponse
+    {
+        if ($medicinePrescription->status !== 'dispensed') {
+            return response()->json(['message' => 'Only dispensed slips can be marked given.'], 422);
+        }
+
+        $slug = $request->user()?->role?->slug;
+        if ($slug !== 'nurse' && ! in_array($slug, ['admin', 'owner'], true)) {
+            return response()->json(['message' => 'Only nurse can mark medicine given.'], 403);
+        }
+
+        $medicinePrescription->update([
+            'status' => 'administered',
+            'administered_by' => $request->user()->id,
+            'administered_at' => now(),
+            'nurse_id' => $request->user()->id,
+        ]);
+
+        $medicinePrescription->load([
+            'patient:id,patient_code,first_name,last_name',
+            'admission:id,admission_code',
+            'doctor:id,doctor_code,full_name,specialization',
+            'nurse:id,name,staff_code',
+            'prescriber:id,name,staff_code',
+            'dispenser:id,name,staff_code',
+            'administeredBy:id,name,staff_code',
+            'items.medicine' => $this->medicineWithExpiry(),
+        ]);
+
+        if ($medicinePrescription->prescribed_by) {
+            $patientName = $medicinePrescription->patient?->full_name ?: 'Patient';
+            $nurseName = $medicinePrescription->administeredBy?->name
+                ?: ($medicinePrescription->nurse?->name ?: 'Nurse');
+            app(AppNotifier::class)->notifyUsers(
+                [$medicinePrescription->prescribed_by],
+                'pharmacy.medicine_given',
+                'Medicine given',
+                "{$medicinePrescription->prescription_code} · {$patientName} · given by {$nurseName}",
+                '/app/medicine-slips/'.$medicinePrescription->id,
+                [
+                    'medicine_prescription_id' => $medicinePrescription->id,
+                    'patient_id' => $medicinePrescription->patient_id,
+                    'status' => 'administered',
+                ],
+                $request->user()->id,
+            );
+        }
+
+        return response()->json([
+            'message' => 'Medicine marked as given',
+            'data' => $this->payload($medicinePrescription),
         ]);
     }
 
@@ -450,6 +626,7 @@ class MedicinePrescriptionController extends Controller
             'is_handwritten' => (bool) $rx->handwritten_image_path,
             'prescribed_at' => $rx->prescribed_at?->toDateTimeString(),
             'dispensed_at' => $rx->dispensed_at?->toDateTimeString(),
+            'administered_at' => $rx->administered_at?->toDateTimeString(),
             'slip_printed_at' => $rx->slip_printed_at?->toDateTimeString(),
             'prescribed_by' => $this->doctorName($rx),
             'doctor_specialization' => $this->doctorSpecialization($rx),
@@ -469,6 +646,8 @@ class MedicinePrescriptionController extends Controller
             ] : null,
             'dispensed_by' => $rx->dispenser?->name,
             'dispensed_by_id' => $rx->dispensed_by,
+            'administered_by' => $rx->administeredBy?->name,
+            'administered_by_id' => $rx->administered_by,
             'patient' => [
                 'id' => $rx->patient?->id,
                 'patient_code' => $rx->patient?->patient_code,
@@ -549,19 +728,20 @@ class MedicinePrescriptionController extends Controller
     {
         $year = now()->format('Y');
         $prefix = "RX-{$year}-";
-        $latest = MedicinePrescription::query()
+        // Use max numeric suffix (not latest id) so demo codes like RX-2026-P002
+        // and gaps do not collide with existing RX-2026-0003 style rows.
+        $codes = MedicinePrescription::query()
             ->where('prescription_code', 'like', $prefix.'%')
-            ->where('prescription_code', 'not like', $prefix.'DEMO')
-            ->where('prescription_code', 'not like', $prefix.'HW%')
-            ->orderByDesc('id')
-            ->value('prescription_code');
+            ->pluck('prescription_code');
 
-        $next = 1;
-        if ($latest && preg_match('/(\d+)$/', $latest, $m)) {
-            $next = ((int) $m[1]) + 1;
+        $max = 0;
+        foreach ($codes as $code) {
+            if (preg_match('/^RX-\d{4}-(\d+)$/', (string) $code, $m)) {
+                $max = max($max, (int) $m[1]);
+            }
         }
 
-        return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
+        return $prefix.str_pad((string) ($max + 1), 4, '0', STR_PAD_LEFT);
     }
 
     private function nextDispenseCode(): string

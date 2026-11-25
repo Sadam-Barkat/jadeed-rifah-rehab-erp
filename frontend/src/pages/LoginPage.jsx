@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { useAuth } from '../context/AuthContext'
 import { homePathForUser } from '../lib/roleHomes'
 import Button from '../components/ui/Button'
+import Modal from '../components/ui/Modal'
 import './pages.css'
 
 export default function LoginPage() {
@@ -14,6 +15,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('Admin@123')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [lockMessage, setLockMessage] = useState('')
 
   if (booting) return null
   if (isAuthenticated) return <Navigate to={homePathForUser(user)} replace />
@@ -26,7 +28,11 @@ export default function LoginPage() {
       toast.success(`Welcome, ${loggedInUser.name}`)
       navigate(homePathForUser(loggedInUser), { replace: true })
     } catch (err) {
-      toast.error(err.message || 'Login failed')
+      if (err.status === 409) {
+        setLockMessage(err.message || 'Another staff member is currently logged in for this role.')
+      } else {
+        toast.error(err.message || 'Login failed')
+      }
     } finally {
       setLoading(false)
     }
@@ -89,6 +95,16 @@ export default function LoginPage() {
           </Button>
         </form>
       </div>
+
+      <Modal
+        open={Boolean(lockMessage)}
+        title="Already signed in"
+        onClose={() => setLockMessage('')}
+        cancelLabel="OK"
+        size="sm"
+      >
+        <p>{lockMessage}</p>
+      </Modal>
     </div>
   )
 }

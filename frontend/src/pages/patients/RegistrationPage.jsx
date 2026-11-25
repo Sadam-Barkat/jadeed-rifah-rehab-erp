@@ -8,6 +8,8 @@ import {
   formatPkPhone,
   isValidPkCnic,
   isValidPkPhone,
+  normalizePkPhone,
+  PK_PHONE_HINT,
 } from '../../lib/pk'
 import { useAuth } from '../../context/AuthContext'
 import Button from '../../components/ui/Button'
@@ -84,7 +86,8 @@ export default function RegistrationPage({ embedded = false, backTo: backToProp 
     if (form.gender) fd.append('gender', form.gender)
     if (form.date_of_birth) fd.append('date_of_birth', form.date_of_birth)
     if (form.age) fd.append('age', String(Number(form.age)))
-    if (form.phone) fd.append('phone', form.phone)
+    const phone = normalizePkPhone(form.phone)
+    if (phone) fd.append('phone', phone)
     if (form.address) fd.append('address', form.address)
     if (form.city) fd.append('city', form.city)
     if (form.blood_group) fd.append('blood_group', form.blood_group)
@@ -98,7 +101,8 @@ export default function RegistrationPage({ embedded = false, backTo: backToProp 
     if (form.guardian_name) {
       fd.append('guardian[name]', form.guardian_name)
       if (form.guardian_relation) fd.append('guardian[relation]', form.guardian_relation)
-      if (form.guardian_phone) fd.append('guardian[phone]', form.guardian_phone)
+      const gPhone = normalizePkPhone(form.guardian_phone)
+      if (gPhone) fd.append('guardian[phone]', gPhone)
       if (form.guardian_cnic) fd.append('guardian[cnic]', form.guardian_cnic)
       if (form.guardian_address) fd.append('guardian[address]', form.guardian_address)
       fd.append('guardian[is_emergency]', '1')
@@ -114,7 +118,7 @@ export default function RegistrationPage({ embedded = false, backTo: backToProp 
       return
     }
     if (!isValidPkPhone(form.phone)) {
-      toast.error('Enter a valid phone (11 digits, e.g. 03XXXXXXXXX)')
+      toast.error(PK_PHONE_HINT)
       return
     }
     if (!form.gender) {
@@ -143,7 +147,7 @@ export default function RegistrationPage({ embedded = false, backTo: backToProp 
         return
       }
       if (!isValidPkPhone(form.guardian_phone)) {
-        toast.error('Enter a valid guardian phone (11 digits)')
+        toast.error(`Guardian phone: ${PK_PHONE_HINT}`)
         return
       }
       if (!form.guardian_address.trim()) {
@@ -275,10 +279,10 @@ export default function RegistrationPage({ embedded = false, backTo: backToProp 
           <input
             id="phone"
             className="ui-input"
-            inputMode="numeric"
+            inputMode="tel"
             autoComplete="tel"
-            placeholder="03XXXXXXXXX"
-            maxLength={11}
+            placeholder="03… or +92…"
+            maxLength={13}
             required
             value={form.phone}
             onChange={(e) => setField('phone', formatPkPhone(e.target.value))}
@@ -455,9 +459,9 @@ export default function RegistrationPage({ embedded = false, backTo: backToProp 
           <input
             id="guardian_phone"
             className="ui-input"
-            inputMode="numeric"
-            placeholder="03XXXXXXXXX"
-            maxLength={11}
+            inputMode="tel"
+            placeholder="03… or +92…"
+            maxLength={13}
             value={form.guardian_phone}
             onChange={(e) => setField('guardian_phone', formatPkPhone(e.target.value))}
           />

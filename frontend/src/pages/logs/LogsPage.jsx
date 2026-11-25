@@ -5,9 +5,11 @@ import { downloadCsvFromApi } from '../../lib/csv'
 import Button from '../../components/ui/Button'
 import Pagination from '../../components/ui/Pagination'
 import { SkeletonCards } from '../../components/ui/Skeleton'
+import { currentYearMonthPlain } from '../../components/dashboard/DateRangeFilter'
 import '../pages.css'
 
 const PER_PAGE = 20
+const CURRENT_YM = currentYearMonthPlain()
 
 const MONTHS = [
   { value: '', label: 'All months' },
@@ -30,10 +32,10 @@ export default function LogsPage() {
   const [exporting, setExporting] = useState(false)
   const [search, setSearch] = useState('')
   const [debounced, setDebounced] = useState('')
-  const [year, setYear] = useState('')
-  const [month, setMonth] = useState('')
+  const [year, setYear] = useState(CURRENT_YM.year)
+  const [month, setMonth] = useState(CURRENT_YM.month)
   const [date, setDate] = useState('')
-  const [years, setYears] = useState([])
+  const [years, setYears] = useState([CURRENT_YM.year])
   const [rows, setRows] = useState([])
   const [meta, setMeta] = useState({ current_page: 1, last_page: 1, total: 0 })
   const [page, setPage] = useState(1)

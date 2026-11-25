@@ -19,8 +19,10 @@ class MedicinePrescription extends Model
         'handwritten_image_path',
         'prescribed_by',
         'dispensed_by',
+        'administered_by',
         'prescribed_at',
         'dispensed_at',
+        'administered_at',
         'slip_printed_at',
     ];
 
@@ -29,6 +31,7 @@ class MedicinePrescription extends Model
         return [
             'prescribed_at' => 'datetime',
             'dispensed_at' => 'datetime',
+            'administered_at' => 'datetime',
             'slip_printed_at' => 'datetime',
         ];
     }
@@ -66,5 +69,10 @@ class MedicinePrescription extends Model
     public function dispenser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'dispensed_by');
+    }
+
+    public function administeredBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'administered_by');
     }
 }

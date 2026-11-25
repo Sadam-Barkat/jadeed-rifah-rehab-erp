@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { LogOut, Settings, UserRound } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { MODULES } from '../../data/modules'
+import { isClinicalDoctor } from '../../lib/clinicalDoctors'
 import { ROLE_HOME_PATH } from '../../lib/roleHomes'
 import NotificationBell from './NotificationBell'
 import ProfileEditModal from './ProfileEditModal'
@@ -40,6 +41,18 @@ const DISPENSER_TABS = [
   { to: '/app/pharmacy?tab=receive', label: 'Receive Stock', match: 'receive' },
   { to: '/app/pharmacy?tab=levels', label: 'Stock Levels', match: 'levels' },
   { to: '/app/pharmacy?tab=expired', label: 'Expired', match: 'expired' },
+]
+
+const NURSE_TABS = [
+  { to: '/app/nursing?tab=slips', label: 'Medicine slips', match: 'slips' },
+  { to: '/app/nursing?tab=given', label: 'Given', match: 'given' },
+  { to: '/app/nursing?tab=vitals', label: 'Vitals', match: 'vitals' },
+]
+
+const DOCTOR_TABS = [
+  { to: '/app/doctors?tab=vitals', label: 'Vitals', match: 'vitals' },
+  { to: '/app/doctors?tab=prescribe', label: 'Prescribe', match: 'prescribe' },
+  { to: '/app/doctors?tab=rounds', label: 'Rounds', match: 'rounds' },
 ]
 
 function initials(name) {
@@ -83,9 +96,13 @@ export default function RoleTopNav({ onLogoutClick }) {
   const isInventoryManager = user?.role_slug === 'inventory-manager'
   const isCook = user?.role_slug === 'cook'
   const isDispenser = user?.role_slug === 'dispenser' || user?.role_slug === 'pharmacist'
+  const isNurse = user?.role_slug === 'nurse'
+  const isDoctor = isClinicalDoctor(user)
+  const isPsychologist = user?.role_slug === 'clinical-psychologist'
+  const isMaulana = user?.role_slug === 'maulana'
   const items = useMemo(
-    () => (isFinance || isReception || isGate || isInventoryManager || isCook || isDispenser ? [] : navItemsForUser(user)),
-    [isFinance, isReception, isGate, isInventoryManager, isCook, isDispenser, user]
+    () => (isFinance || isReception || isGate || isInventoryManager || isCook || isDispenser || isNurse || isDoctor || isPsychologist || isMaulana ? [] : navItemsForUser(user)),
+    [isFinance, isReception, isGate, isInventoryManager, isCook, isDispenser, isNurse, isDoctor, isPsychologist, isMaulana, user]
   )
 
   useEffect(() => {
@@ -115,6 +132,12 @@ export default function RoleTopNav({ onLogoutClick }) {
     ? rawPharmacyTab
     : 'prescriptions'
   const onPharmacy = location.pathname.startsWith('/app/pharmacy')
+  const rawNurseTab = params.get('tab') || 'slips'
+  const nurseTab = NURSE_TABS.some((tab) => tab.match === rawNurseTab) ? rawNurseTab : 'slips'
+  const onNursing = location.pathname.startsWith('/app/nursing')
+  const rawDoctorTab = params.get('tab') || 'vitals'
+  const doctorTab = DOCTOR_TABS.some((tab) => tab.match === rawDoctorTab) ? rawDoctorTab : 'vitals'
+  const onDoctors = location.pathname.startsWith('/app/doctors')
 
   return (
     <>
@@ -197,15 +220,43 @@ export default function RoleTopNav({ onLogoutClick }) {
                           </NavLink>
                         )
                       })
-                    : items.map((item) => (
-                      <NavLink
-                        key={item.id}
-                        to={item.to}
-                        className={({ isActive }) => `role-nav-tab${isActive ? ' is-active' : ''}`}
-                      >
-                        {item.label}
-                      </NavLink>
-                    ))}
+                    : isNurse
+                      ? NURSE_TABS.map((tab) => {
+                          const active = onNursing && nurseTab === tab.match
+                          return (
+                            <NavLink
+                              key={tab.match}
+                              to={tab.to}
+                              className={`role-nav-tab${active ? ' is-active' : ''}`}
+                            >
+                              {tab.label}
+                            </NavLink>
+                          )
+                        })
+                      : isDoctor
+                        ? DOCTOR_TABS.map((tab) => {
+                            const active = onDoctors && doctorTab === tab.match
+                            return (
+                              <NavLink
+                                key={tab.match}
+                                to={tab.to}
+                                className={`role-nav-tab${active ? ' is-active' : ''}`}
+                              >
+                                {tab.label}
+                              </NavLink>
+                            )
+                          })
+                        : isPsychologist || isMaulana
+                          ? null
+                          : items.map((item) => (
+                              <NavLink
+                                key={item.id}
+                                to={item.to}
+                                className={({ isActive }) => `role-nav-tab${isActive ? ' is-active' : ''}`}
+                              >
+                                {item.label}
+                              </NavLink>
+                            ))}
         </nav>
 
         <div className="role-nav-right">

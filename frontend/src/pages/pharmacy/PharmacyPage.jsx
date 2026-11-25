@@ -11,7 +11,10 @@ import Modal from '../../components/ui/Modal'
 import ScrollSelect from '../../components/ui/ScrollSelect'
 import { SkeletonCards } from '../../components/ui/Skeleton'
 import { homePathForUser } from '../../lib/roleHomes'
+import { currentYearMonthPlain } from '../../components/dashboard/DateRangeFilter'
 import '../pages.css'
+
+const CURRENT_YM = currentYearMonthPlain()
 
 const RECEIVE_DRAFT_KEY = 'receive_stock'
 const RECEIVE_OPTS_KEY = 'receive_field_options'
@@ -252,10 +255,10 @@ export default function PharmacyPage() {
   const [orderStatus, setOrderStatus] = useState('pending')
   const [orderSearch, setOrderSearch] = useState('')
   const [debouncedOrderSearch, setDebouncedOrderSearch] = useState('')
-  const [orderYear, setOrderYear] = useState('')
-  const [orderMonth, setOrderMonth] = useState('')
+  const [orderYear, setOrderYear] = useState(CURRENT_YM.year)
+  const [orderMonth, setOrderMonth] = useState(CURRENT_YM.month)
   const [orderDate, setOrderDate] = useState('')
-  const [orderYears, setOrderYears] = useState([])
+  const [orderYears, setOrderYears] = useState([Number(CURRENT_YM.year)])
   const [ordersLoading, setOrdersLoading] = useState(false)
   const [medSearch, setMedSearch] = useState('')
   const [debouncedMedSearch, setDebouncedMedSearch] = useState('')
@@ -275,10 +278,10 @@ export default function PharmacyPage() {
   const [expiredLoading, setExpiredLoading] = useState(false)
   const [expiredSearch, setExpiredSearch] = useState('')
   const [debouncedExpiredSearch, setDebouncedExpiredSearch] = useState('')
-  const [expiredYear, setExpiredYear] = useState('')
-  const [expiredMonth, setExpiredMonth] = useState('')
+  const [expiredYear, setExpiredYear] = useState(CURRENT_YM.year)
+  const [expiredMonth, setExpiredMonth] = useState(CURRENT_YM.month)
   const [expiredDate, setExpiredDate] = useState('')
-  const [expiredYears, setExpiredYears] = useState([])
+  const [expiredYears, setExpiredYears] = useState([Number(CURRENT_YM.year)])
   const [expiredTotal, setExpiredTotal] = useState(0)
 
   useEffect(() => {

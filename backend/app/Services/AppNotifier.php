@@ -16,6 +16,8 @@ class AppNotifier
         'reception' => 'Reception',
         'receptionist' => 'Reception',
         'doctor' => 'Doctor',
+        'consultant-psychiatrist' => 'Psychiatrist',
+        'medical-officer' => 'Medical Officer',
         'nurse' => 'Nursing',
         'nursing' => 'Nursing',
         'gate' => 'Gate',
@@ -25,6 +27,10 @@ class AppNotifier
         'pharmacy' => 'Dispenser',
         'inventory' => 'Inventory',
         'inventory-manager' => 'Inventory',
+        'clinical-psychologist' => 'Psychology',
+        'psychology' => 'Psychology',
+        'maulana' => 'Spiritual',
+        'spiritual' => 'Spiritual',
         'accounts' => 'Accounts',
     ];
 

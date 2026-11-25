@@ -19,7 +19,7 @@ function sectionForTab(section, financeTab) {
 
 export default function AdminSectionPage({ section, fallbackTitle }) {
   const [searchParams, setSearchParams] = useSearchParams()
-  const [filter, setFilter] = useState(defaultRange)
+  const [filter, setFilter] = useState(() => defaultRange())
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState(null)
   const [staffOptions, setStaffOptions] = useState([])
@@ -36,6 +36,7 @@ export default function AdminSectionPage({ section, fallbackTitle }) {
   const showStaff = STAFF_SECTIONS.has(activeSection)
   const showSpentFor = activeSection === 'inventory-petty'
   const showBillType = activeSection === 'inventory-bills'
+  const filterKey = `${section}:${financeTab}`
 
   useEffect(() => {
     let alive = true
@@ -72,40 +73,40 @@ export default function AdminSectionPage({ section, fallbackTitle }) {
     }
   }, [section, activeSection, showStaff, showSpentFor, showBillType])
 
-  const load = useCallback(
-    async (nextFilter = filter, nextSection = activeSection) => {
-      setLoading(true)
-      try {
-        const q = new URLSearchParams({
-          section: nextSection,
-          from: nextFilter.from,
-          to: nextFilter.to,
-        })
-        if (STAFF_SECTIONS.has(nextSection) && nextFilter.created_by) {
-          q.set('created_by', String(nextFilter.created_by))
-        }
-        if (nextSection === 'inventory-petty' && nextFilter.spent_for) {
-          q.set('spent_for', String(nextFilter.spent_for))
-        }
-        if (nextSection === 'inventory-bills' && nextFilter.bill_type) {
-          q.set('bill_type', String(nextFilter.bill_type))
-        }
-        const res = await api(`/reports/dashboard?${q}`)
-        setData(res.data)
-      } catch (err) {
-        toast.error(err.message || 'Failed to load overview')
-      } finally {
-        setLoading(false)
+  const load = useCallback(async (nextFilter, nextSection = activeSection) => {
+    setLoading(true)
+    try {
+      const q = new URLSearchParams({
+        section: nextSection,
+        from: nextFilter.from,
+        to: nextFilter.to,
+      })
+      if (STAFF_SECTIONS.has(nextSection) && nextFilter.created_by) {
+        q.set('created_by', String(nextFilter.created_by))
       }
-    },
-    [filter, activeSection]
-  )
+      if (nextSection === 'inventory-petty' && nextFilter.spent_for) {
+        q.set('spent_for', String(nextFilter.spent_for))
+      }
+      if (nextSection === 'inventory-bills' && nextFilter.bill_type) {
+        q.set('bill_type', String(nextFilter.bill_type))
+      }
+      const res = await api(`/reports/dashboard?${q}`)
+      setData(res.data)
+    } catch (err) {
+      toast.error(err.message || 'Failed to load overview')
+    } finally {
+      setLoading(false)
+    }
+  }, [activeSection])
 
+  // Entering any admin section/tab always starts from current month default —
+  // never leak a Reset/"all" filter from a previous tab into the next one.
   useEffect(() => {
-    setFilter((prev) => ({ ...prev, created_by: '', spent_for: '', bill_type: '' }))
-    const next = { ...filter, created_by: '', spent_for: '', bill_type: '' }
+    const next = defaultRange()
+    setFilter(next)
+    setData(null)
     load(next, activeSection)
-  }, [section, financeTab])
+  }, [filterKey, activeSection, load])
 
   const tabTitle =
     financeTab === 'petty'
@@ -149,6 +150,7 @@ export default function AdminSectionPage({ section, fallbackTitle }) {
       ) : null}
 
       <DashboardView
+        key={filterKey}
         eyebrow="Admin Dashboard"
         title={data?.title || tabTitle}
         filter={filter}

@@ -39,6 +39,8 @@ export function listFulfillDrafts() {
         id,
         lines: data.lines,
         saved_at: data.saved_at || null,
+        prescription_code: data.prescription_code || '',
+        patient_name: data.patient_name || '',
         line_count: data.lines.filter((line) => line.medicine_id || line.medicine_label).length,
       })
     }

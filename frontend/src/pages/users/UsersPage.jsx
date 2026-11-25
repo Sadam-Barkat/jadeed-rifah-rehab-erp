@@ -3,10 +3,20 @@ import { Link } from 'react-router-dom'
 import { Copy, MessageCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
+import {
+  digitsOnly,
+  formatPkCnic,
+  formatPkPhone,
+  isValidPkCnic,
+  isValidPkPhone,
+  normalizePkPhone,
+  PK_PHONE_HINT,
+} from '../../lib/pk'
 import { isWithinUploadLimit, uploadTooLargeMessage } from '../../lib/uploadLimits'
 import Button from '../../components/ui/Button'
 import Modal from '../../components/ui/Modal'
 import Pagination from '../../components/ui/Pagination'
+import ScrollSelect from '../../components/ui/ScrollSelect'
 import { SkeletonCards } from '../../components/ui/Skeleton'
 import '../pages.css'
 
@@ -26,23 +36,7 @@ const emptyForm = {
   is_active: true,
 }
 
-const ROLE_FILTERS = [
-  { id: '', label: 'All staff' },
-  { id: 'doctor', label: 'Doctors' },
-  { id: 'nurse', label: 'Nurses' },
-  { id: 'receptionist', label: 'Reception' },
-  { id: 'dispenser', label: 'Dispenser' },
-  { id: 'finance', label: 'Finance' },
-  { id: 'inventory-manager', label: 'Inventory' },
-  { id: 'cook', label: 'Cook' },
-  { id: 'gatekeeper', label: 'Gate' },
-]
-
 const PER_PAGE = 12
-
-function digitsOnly(value) {
-  return String(value || '').replace(/\D/g, '')
-}
 
 /** Pakistan-friendly WhatsApp number → international digits without +. */
 function whatsappNumber(phone) {
@@ -55,6 +49,16 @@ function whatsappNumber(phone) {
 }
 
 function credentialsMessage(creds) {
+  if (creds.attendance_only) {
+    return [
+      'Attendance staff — Jadeed Rifah Rehab ERP',
+      '',
+      `Name: ${creds.name || '—'}`,
+      `Attendance code: ${creds.attendance_code || '—'}`,
+      '',
+      'No app login. Show this code at the gate for daily check-in.',
+    ].join('\n')
+  }
   return [
     'Login credentials — Jadeed Rifah Rehab ERP',
     '',
@@ -191,9 +195,19 @@ export default function UsersPage({ embedded = false }) {
       toast.error('Name, email, phone, and role are required')
       return
     }
+    if (!isValidPkPhone(form.phone)) {
+      toast.error(PK_PHONE_HINT)
+      return
+    }
+    if (form.cnic.trim() && !isValidPkCnic(form.cnic)) {
+      toast.error('Enter a valid CNIC (13 digits)')
+      return
+    }
     setSaving(true)
     try {
       const body = buildStaffFormData({ generate_password: '1' })
+      const normalized = normalizePkPhone(form.phone)
+      if (normalized) body.set('phone', normalized)
       const data = await api('/users', { method: 'POST', body })
       toast.success(`${data.data.name} created`)
       setAddOpen(false)
@@ -215,11 +229,21 @@ export default function UsersPage({ embedded = false }) {
       toast.error('Name, email, phone, and role are required')
       return
     }
+    if (!isValidPkPhone(form.phone)) {
+      toast.error(PK_PHONE_HINT)
+      return
+    }
+    if (form.cnic.trim() && !isValidPkCnic(form.cnic)) {
+      toast.error('Enter a valid CNIC (13 digits)')
+      return
+    }
     setSaving(true)
     try {
       const body = buildStaffFormData({
         is_active: form.is_active ? '1' : '0',
       })
+      const normalized = normalizePkPhone(form.phone)
+      if (normalized) body.set('phone', normalized)
       await api(`/users/${editUser.id}`, { method: 'POST', body })
       toast.success('Staff updated')
       setEditUser(null)
@@ -309,9 +333,10 @@ export default function UsersPage({ embedded = false }) {
           className="ui-input"
           required
           inputMode="tel"
-          placeholder="03XXXXXXXXX"
+          maxLength={13}
+          placeholder="03… or +92…"
           value={form.phone}
-          onChange={(e) => setField('phone', e.target.value)}
+          onChange={(e) => setField('phone', formatPkPhone(e.target.value))}
         />
       </div>
       <div className="ui-field">
@@ -319,9 +344,11 @@ export default function UsersPage({ embedded = false }) {
         <input
           id="staff_cnic"
           className="ui-input"
+          inputMode="numeric"
+          maxLength={15}
           placeholder="xxxxx-xxxxxxx-x"
           value={form.cnic}
-          onChange={(e) => setField('cnic', e.target.value)}
+          onChange={(e) => setField('cnic', formatPkCnic(e.target.value))}
         />
       </div>
       <div className="ui-field">
@@ -369,7 +396,9 @@ export default function UsersPage({ embedded = false }) {
         >
           <option value="">Select</option>
           {roles.map((r) => (
-            <option key={r.id} value={r.id}>{r.name}</option>
+            <option key={r.id} value={r.id}>
+              {r.attendance_only ? `${r.name} (attendance)` : r.name}
+            </option>
           ))}
         </select>
       </div>
@@ -451,21 +480,21 @@ export default function UsersPage({ embedded = false }) {
       )}
 
       <div className="mgmt-toolbar">
-        <div className="filter-tabs" role="tablist" aria-label="Staff roles">
-          {ROLE_FILTERS.map((tab) => (
-            <button
-              key={tab.id || 'all'}
-              type="button"
-              role="tab"
-              aria-selected={roleFilter === tab.id}
-              className={`filter-tab ${roleFilter === tab.id ? 'is-active' : ''}`}
-              onClick={() => setRoleFilter(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
         <div className="mgmt-toolbar-actions">
+          <div className="mgmt-role-filter">
+            <ScrollSelect
+              id="staff_role_filter"
+              value={roleFilter}
+              options={[
+                { value: '', label: 'All staff' },
+                ...roles.map((r) => ({ value: r.slug, label: r.name })),
+              ]}
+              onChange={(value) => setRoleFilter(value)}
+              placeholder="All staff"
+              searchable
+              preferDown
+            />
+          </div>
           <input
             className="ui-input"
             type="search"
@@ -525,9 +554,11 @@ export default function UsersPage({ embedded = false }) {
                 <Button type="button" size="sm" variant="secondary" onClick={() => openEdit(u)}>
                   Edit
                 </Button>
-                <Button type="button" size="sm" variant="ghost" onClick={() => regeneratePassword(u)}>
-                  Regenerate
-                </Button>
+                {!u.attendance_only ? (
+                  <Button type="button" size="sm" variant="ghost" onClick={() => regeneratePassword(u)}>
+                    Regenerate
+                  </Button>
+                ) : null}
               </div>
             </article>
           ))}
@@ -568,25 +599,40 @@ export default function UsersPage({ embedded = false }) {
 
       <Modal
         open={Boolean(credentials)}
-        title="Login credentials"
+        title={credentials?.attendance_only ? 'Attendance code' : 'Login credentials'}
         hideFooter
         onClose={() => setCredentials(null)}
       >
         {credentials ? (
           <div className="cred-block">
             <div className="cred-secret">
-              <div>
-                <span>Email</span>
-                <strong>{credentials.email || '—'}</strong>
-              </div>
-              <div>
-                <span>Password</span>
-                <strong className="cred-password">{credentials.temporary_password}</strong>
-              </div>
-              <div>
-                <span>Attendance code</span>
-                <strong className="cred-password">{credentials.attendance_code || '—'}</strong>
-              </div>
+              {credentials.attendance_only ? (
+                <>
+                  <div>
+                    <span>Name</span>
+                    <strong>{credentials.name || '—'}</strong>
+                  </div>
+                  <div>
+                    <span>Attendance code</span>
+                    <strong className="cred-password">{credentials.attendance_code || '—'}</strong>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <span>Email</span>
+                    <strong>{credentials.email || '—'}</strong>
+                  </div>
+                  <div>
+                    <span>Password</span>
+                    <strong className="cred-password">{credentials.temporary_password}</strong>
+                  </div>
+                  <div>
+                    <span>Attendance code</span>
+                    <strong className="cred-password">{credentials.attendance_code || '—'}</strong>
+                  </div>
+                </>
+              )}
             </div>
             <div className="cred-actions">
               <Button type="button" variant="secondary" onClick={copyCreds}>

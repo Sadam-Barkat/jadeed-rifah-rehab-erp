@@ -7,9 +7,11 @@ import { useAuth } from '../../context/AuthContext'
 import Button from '../../components/ui/Button'
 import { SkeletonCards } from '../../components/ui/Skeleton'
 import FeesPaymentsPanel from './FeesPaymentsPanel'
+import { currentYearMonthPlain } from '../../components/dashboard/DateRangeFilter'
 import '../pages.css'
 
 const VALID_TABS = new Set(['fees', 'petty', 'bills'])
+const CURRENT_YM = currentYearMonthPlain()
 
 const MONTH_OPTIONS = [
   { value: '1', label: 'January' },
@@ -71,9 +73,9 @@ export default function BillingPage() {
   const [pettyForm, setPettyForm] = useState(emptyPetty)
   const [pettyRows, setPettyRows] = useState([])
   const [spentForOptions, setSpentForOptions] = useState([])
-  const [pettyYears, setPettyYears] = useState([])
-  const [pettyYear, setPettyYear] = useState('')
-  const [pettyMonth, setPettyMonth] = useState('')
+  const [pettyYears, setPettyYears] = useState([Number(CURRENT_YM.year)])
+  const [pettyYear, setPettyYear] = useState(CURRENT_YM.year)
+  const [pettyMonth, setPettyMonth] = useState(CURRENT_YM.month)
   const [pettyDate, setPettyDate] = useState('')
   const [pettySearch, setPettySearch] = useState('')
   const [debouncedPettySearch, setDebouncedPettySearch] = useState('')
@@ -84,9 +86,9 @@ export default function BillingPage() {
   const [billForm, setBillForm] = useState(emptyBill)
   const [billRows, setBillRows] = useState([])
   const [billTypesMeta, setBillTypesMeta] = useState([])
-  const [billYears, setBillYears] = useState([])
-  const [billYear, setBillYear] = useState('')
-  const [billMonth, setBillMonth] = useState('')
+  const [billYears, setBillYears] = useState([Number(CURRENT_YM.year)])
+  const [billYear, setBillYear] = useState(CURRENT_YM.year)
+  const [billMonth, setBillMonth] = useState(CURRENT_YM.month)
   const [billDateFilter, setBillDateFilter] = useState('')
   const [billSearch, setBillSearch] = useState('')
   const [debouncedBillSearch, setDebouncedBillSearch] = useState('')

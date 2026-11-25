@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Role;
 use App\Models\User;
+use App\Support\AttendanceOnlyStaff;
 use App\Support\Audit;
+use App\Support\PkPhone;
 use App\Support\SecureUpload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,26 +21,35 @@ class UserController extends Controller
     private const STAFF_ROLE_SLUGS = [
         'receptionist',
         'gatekeeper',
-        'doctor',
+        'consultant-psychiatrist',
+        'medical-officer',
         'nurse',
         'finance',
         'dispenser',
         'inventory-manager',
         'cook',
+        'clinical-psychologist',
+        'maulana',
+        'security-guard',
+        'cleaner',
     ];
 
     public function roles(): JsonResponse
     {
+        $order = array_flip(self::STAFF_ROLE_SLUGS);
         $roles = Role::query()
             ->whereIn('slug', self::STAFF_ROLE_SLUGS)
-            ->orderBy('name')
-            ->get(['id', 'name', 'slug', 'modules']);
+            ->get(['id', 'name', 'slug', 'modules'])
+            ->sortBy(fn (Role $r) => $order[$r->slug] ?? 999)
+            ->values();
+
         return response()->json([
             'data' => $roles->map(fn (Role $r) => [
                 'id' => $r->id,
                 'name' => $r->name,
                 'slug' => $r->slug,
                 'modules' => $r->modules ?? [],
+                'attendance_only' => AttendanceOnlyStaff::is($r->slug),
             ]),
         ]);
     }
@@ -90,8 +101,8 @@ class UserController extends Controller
             'name' => ['required', 'string', 'max:150'],
             'father_name' => ['nullable', 'string', 'max:150'],
             'email' => ['required', 'email', 'max:150', 'unique:users,email'],
-            'phone' => ['required', 'string', 'max:30'],
-            'cnic' => ['nullable', 'string', 'max:25'],
+            'phone' => ['required', 'string', 'max:20'],
+            'cnic' => ['nullable', 'string', 'max:15'],
             'gender' => ['nullable', 'string', 'max:20'],
             'date_of_birth' => ['nullable', 'date'],
             'address' => ['nullable', 'string', 'max:255'],
@@ -114,6 +125,16 @@ class UserController extends Controller
             return response()->json(['message' => 'Invalid staff role.'], 422);
         }
 
+        $phone = PkPhone::normalize($data['phone'] ?? null);
+        if ($phone === false || $phone === null) {
+            return response()->json(['message' => 'Phone must start with 03 or +92.'], 422);
+        }
+        $cnic = $this->normalizeCnic($data['cnic'] ?? null);
+        if ($cnic === false) {
+            return response()->json(['message' => 'CNIC must be 13 digits.'], 422);
+        }
+
+        $attendanceOnly = AttendanceOnlyStaff::is($role->slug);
         $tempPassword = $data['password'] ?? null;
         $auto = $request->boolean('generate_password', true) || empty($tempPassword);
         if ($auto) {
@@ -131,8 +152,8 @@ class UserController extends Controller
             'name' => $data['name'],
             'father_name' => $data['father_name'] ?? null,
             'email' => $data['email'],
-            'phone' => trim($data['phone']),
-            'cnic' => $data['cnic'] ?? null,
+            'phone' => $phone,
+            'cnic' => $cnic,
             'gender' => $data['gender'] ?? null,
             'date_of_birth' => $data['date_of_birth'] ?? null,
             'address' => $data['address'] ?? null,
@@ -143,15 +164,15 @@ class UserController extends Controller
             'password' => $tempPassword, // cast: hashed at rest; plaintext returned once only
             'role_id' => $role->id,
             'is_active' => array_key_exists('is_active', $data) ? (bool) $data['is_active'] : true,
-            'must_change_password' => true,
+            'must_change_password' => ! $attendanceOnly,
         ])->load('role');
 
         Audit::log('user.create', 'users', 'user', $user->id, "Created staff {$user->email}");
 
         return response()->json([
-            'message' => 'Staff created',
+            'message' => $attendanceOnly ? 'Attendance staff created' : 'Staff created',
             'data' => $this->payload($user),
-            'credentials' => $this->credentialsPayload($user, $tempPassword),
+            'credentials' => $this->credentialsPayload($user, $attendanceOnly ? null : $tempPassword),
         ], 201);
     }
 
@@ -171,8 +192,8 @@ class UserController extends Controller
             'name' => ['sometimes', 'required', 'string', 'max:150'],
             'father_name' => ['nullable', 'string', 'max:150'],
             'email' => ['sometimes', 'required', 'email', 'max:150', Rule::unique('users', 'email')->ignore($user->id)],
-            'phone' => ['sometimes', 'required', 'string', 'max:30'],
-            'cnic' => ['nullable', 'string', 'max:25'],
+            'phone' => ['sometimes', 'required', 'string', 'max:20'],
+            'cnic' => ['nullable', 'string', 'max:15'],
             'gender' => ['nullable', 'string', 'max:20'],
             'date_of_birth' => ['nullable', 'date'],
             'address' => ['nullable', 'string', 'max:255'],
@@ -203,6 +224,10 @@ class UserController extends Controller
         }
 
         $tempPassword = null;
+        if ($request->boolean('reset_password') && AttendanceOnlyStaff::is($user->role?->slug)) {
+            return response()->json(['message' => 'This staff record is for attendance only. No app login.'], 422);
+        }
+
         if ($request->boolean('reset_password')) {
             $tempPassword = $this->generateTempPassword();
             $data['password'] = $tempPassword;
@@ -215,6 +240,20 @@ class UserController extends Controller
         $payload = collect($data)->except(['password', 'reset_password', 'photo'])->all();
         if ($request->has('is_active')) {
             $payload['is_active'] = $request->boolean('is_active');
+        }
+        if (array_key_exists('phone', $payload)) {
+            $phone = PkPhone::normalize($payload['phone'] ?? null);
+            if ($phone === false || $phone === null) {
+                return response()->json(['message' => 'Phone must start with 03 or +92.'], 422);
+            }
+            $payload['phone'] = $phone;
+        }
+        if (array_key_exists('cnic', $payload)) {
+            $cnic = $this->normalizeCnic($payload['cnic'] ?? null);
+            if ($cnic === false) {
+                return response()->json(['message' => 'CNIC must be 13 digits.'], 422);
+            }
+            $payload['cnic'] = $cnic;
         }
         if (! empty($data['password'])) {
             $payload['password'] = $data['password'];
@@ -287,19 +326,23 @@ class UserController extends Controller
                 'name' => $user->role?->name,
                 'slug' => $user->role?->slug,
             ],
+            'attendance_only' => AttendanceOnlyStaff::is($user->role?->slug),
         ];
     }
 
     /** Plaintext password is returned only at create/regenerate time — never stored readable. */
-    private function credentialsPayload(User $user, string $plainPassword): array
+    private function credentialsPayload(User $user, ?string $plainPassword): array
     {
+        $attendanceOnly = AttendanceOnlyStaff::is($user->role?->slug);
+
         return [
             'name' => $user->name,
             'staff_code' => $user->staff_code,
             'attendance_code' => $user->attendance_code,
             'email' => $user->email,
             'phone' => $user->phone,
-            'temporary_password' => $plainPassword,
+            'temporary_password' => $attendanceOnly ? null : $plainPassword,
+            'attendance_only' => $attendanceOnly,
             'one_time' => true,
         ];
     }
@@ -307,6 +350,21 @@ class UserController extends Controller
     private function generateTempPassword(): string
     {
         return 'Jr@'.Str::upper(Str::random(4)).rand(10, 99);
+    }
+
+    /** @return string|null|false null = empty, false = invalid, string = #####-#######-# */
+    private function normalizeCnic(mixed $value): string|false|null
+    {
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            return null;
+        }
+        $digits = preg_replace('/\D+/', '', $raw);
+        if (strlen($digits) !== 13) {
+            return false;
+        }
+
+        return substr($digits, 0, 5).'-'.substr($digits, 5, 7).'-'.substr($digits, 12, 1);
     }
 
     private function nextAttendanceCode(): string
@@ -324,6 +382,8 @@ class UserController extends Controller
     private function nextStaffCode(string $roleSlug): string
     {
         $prefix = match ($roleSlug) {
+            'consultant-psychiatrist' => 'CPS',
+            'medical-officer' => 'MO',
             'doctor' => 'DOC',
             'nurse' => 'NUR',
             'receptionist' => 'REC',
@@ -332,6 +392,10 @@ class UserController extends Controller
             'dispenser' => 'DSP',
             'inventory-manager' => 'INV',
             'cook' => 'COK',
+            'clinical-psychologist' => 'CPM',
+            'maulana' => 'MAU',
+            'security-guard' => 'SEC',
+            'cleaner' => 'CLN',
             default => 'STF',
         };
 

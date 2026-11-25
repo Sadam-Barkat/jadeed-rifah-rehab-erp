@@ -21,6 +21,8 @@ const MedicalRecordsPage = lazy(() => import('./pages/medical/MedicalRecordsPage
 const DoctorsPage = lazy(() => import('./pages/doctors/DoctorsPage'))
 const NursingPage = lazy(() => import('./pages/nursing/NursingPage'))
 const MedicineSlipPage = lazy(() => import('./pages/nursing/MedicineSlipPage'))
+const PsychologyPage = lazy(() => import('./pages/psychology/PsychologyPage'))
+const MaulanaPage = lazy(() => import('./pages/maulana/MaulanaPage'))
 const PharmacyPage = lazy(() => import('./pages/pharmacy/PharmacyPage'))
 const PharmacyFulfillPage = lazy(() => import('./pages/pharmacy/PharmacyFulfillPage'))
 const MedicineReceiptPage = lazy(() => import('./pages/pharmacy/MedicineReceiptPage'))
@@ -44,7 +46,7 @@ function RouteFallback() {
     <div className="page" style={{ padding: 24 }}>
       <Skeleton height={28} width="240px" />
       <Skeleton height={160} className="mt-3" />
-    </div>
+        </div>
   )
 }
 
@@ -90,6 +92,8 @@ export default function App() {
               <Route path="doctors" element={<DoctorsPage />} />
               <Route path="nursing" element={<NursingPage />} />
               <Route path="medicine-slips/:id" element={<MedicineSlipPage />} />
+              <Route path="psychology" element={<PsychologyPage />} />
+              <Route path="maulana" element={<MaulanaPage />} />
               <Route path="pharmacy" element={<PharmacyPage />} />
               <Route path="pharmacy/fulfill/:id" element={<PharmacyFulfillPage />} />
               <Route path="medicine-receipts/:id" element={<MedicineReceiptPage />} />

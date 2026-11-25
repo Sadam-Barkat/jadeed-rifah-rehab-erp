@@ -257,6 +257,17 @@ class DemoDataSeeder extends Seeder
             $notePool = $admissions->values();
             for ($n = 1; $n <= 10; $n++) {
                 $admission = $notePool[($n - 1) % max(1, $notePool->count())];
+                $tempC = 36.4 + (($n % 5) * 0.1);
+                $pulse = 72 + ($n % 8);
+                $sys = 112 + ($n % 10);
+                $dia = 72 + ($n % 6);
+                $assessed = \App\Support\VitalCondition::assess([
+                    'temperature' => $tempC,
+                    'pulse' => $pulse,
+                    'bp_systolic' => $sys,
+                    'bp_diastolic' => $dia,
+                    'spo2' => 97,
+                ]);
                 NursingNote::query()->updateOrCreate(
                     ['note_code' => 'NN-'.now()->format('Y').'-'.str_pad((string) $n, 4, '0', STR_PAD_LEFT)],
                     [
@@ -264,16 +275,17 @@ class DemoDataSeeder extends Seeder
                         'patient_id' => $admission->patient_id,
                         'recorded_at' => now()->subHours(12 - $n),
                         'shift' => $n % 3 === 0 ? 'night' : ($n % 2 === 0 ? 'evening' : 'morning'),
-                        'temperature' => 98.0 + ($n * 0.1),
-                        'pulse' => 70 + $n,
-                        'bp_systolic' => 110 + $n,
-                        'bp_diastolic' => 70 + ($n % 5),
+                        'temperature' => $tempC,
+                        'pulse' => $pulse,
+                        'bp_systolic' => $sys,
+                        'bp_diastolic' => $dia,
                         'spo2' => 97,
                         'mood' => 'stable',
                         'sleep_quality' => 'fair',
                         'appetite' => 'good',
-                        'observations' => 'Test nursing note '.$n,
-                        'interventions' => 'Routine vitals',
+                        'observations' => 'Routine ward check. Patient cooperative.',
+                        'interventions' => 'Vitals recorded; continue observation',
+                        'condition' => $assessed['level'] === 'unrecorded' ? 'normal' : $assessed['level'],
                         'status' => $n === 10 ? 'flagged' : 'recorded',
                         'created_by' => $nurse->id,
                     ]
@@ -286,6 +298,18 @@ class DemoDataSeeder extends Seeder
             $roundPool = $admissions->values();
             for ($n = 1; $n <= 10; $n++) {
                 $admission = $roundPool[($n - 1) % max(1, $roundPool->count())];
+                $findingsSamples = [
+                    'Alert and oriented. Craving reduced. Mild tremor. Sleep improved. Chest clear, abdomen soft. No new complaints.',
+                    'Anxious on waking. Reports headache. Hydration fair. No hallucinations. Withdrawal signs mild.',
+                    'Stable mood. Eating well. No chest pain/shortness of breath. Neuro exam unremarkable.',
+                    'Restless overnight. Nurse reports poor sleep. Pupils normal. No seizure activity.',
+                ];
+                $planSamples = [
+                    'Continue current detox medicines. Monitor vitals 4-hourly. Review drug chart. Next round tomorrow morning.',
+                    'Increase nursing observation tonight. Maintain fluids. Recheck vitals this evening. Escalate if agitation worsens.',
+                    'Continue current plan. Encourage oral intake. Physiotherapy as tolerated. Review in 24 hours.',
+                    'Stat review if seizure/confusion. Keep fall precautions. Medicine review with psychiatrist.',
+                ];
                 DoctorRound::query()->updateOrCreate(
                     ['round_code' => 'DR-'.now()->format('Y').'-'.str_pad((string) $n, 4, '0', STR_PAD_LEFT)],
                     [
@@ -294,9 +318,9 @@ class DemoDataSeeder extends Seeder
                         'patient_id' => $admission->patient_id,
                         'round_at' => now()->subHours(14 - $n),
                         'round_type' => $roundTypes[($n - 1) % count($roundTypes)],
-                        'vitals_summary' => 'Stable',
-                        'findings' => 'Test doctor round '.$n,
-                        'orders' => 'Continue current plan',
+                        'vitals_summary' => 'Temp 36.8°C, Pulse 78, BP 118/76, SpO2 98%',
+                        'findings' => $findingsSamples[($n - 1) % count($findingsSamples)],
+                        'orders' => $planSamples[($n - 1) % count($planSamples)],
                         'next_review_at' => now()->addDay(),
                         'status' => 'completed',
                         'created_by' => $doctorUser->id,

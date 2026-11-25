@@ -8,6 +8,7 @@ use App\Models\Bed;
 use App\Models\Patient;
 use App\Services\AppNotifier;
 use App\Support\Audit;
+use App\Support\PkPhone;
 use App\Support\SecureUpload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -73,12 +74,12 @@ class PatientController extends Controller
         ]));
 
         $data['cnic'] = $this->normalizeCnic($data['cnic'] ?? null);
-        $data['phone'] = $this->normalizePhone($data['phone'] ?? null);
+        $data['phone'] = $this->normalizePhone($data['phone'] ?? null, 'phone');
         if (! empty($data['guardian']['cnic'])) {
             $data['guardian']['cnic'] = $this->normalizeCnic($data['guardian']['cnic']);
         }
         if (! empty($data['guardian']['phone'])) {
-            $data['guardian']['phone'] = $this->normalizePhone($data['guardian']['phone']);
+            $data['guardian']['phone'] = $this->normalizePhone($data['guardian']['phone'], 'guardian.phone');
         }
 
         $duplicates = $this->findDuplicates(
@@ -337,7 +338,7 @@ class PatientController extends Controller
             'gender' => ['nullable', Rule::in(['male', 'female', 'other'])],
             'date_of_birth' => ['nullable', 'date', 'before_or_equal:today'],
             'age' => ['nullable', 'integer', 'min:0', 'max:150'],
-            'phone' => ['required', 'string', 'max:30', 'regex:/^03\d{9}$/'],
+            'phone' => ['required', 'string', 'max:20'],
             'email' => ['nullable', 'email', 'max:150'],
             'address' => ['nullable', 'string', 'max:255'],
             'city' => ['nullable', 'string', 'max:100'],
@@ -349,7 +350,7 @@ class PatientController extends Controller
             'guardian' => ['nullable', 'array'],
             'guardian.name' => ['required_with:guardian', 'string', 'max:150'],
             'guardian.relation' => ['nullable', 'string', 'max:80'],
-            'guardian.phone' => ['nullable', 'string', 'max:30', 'regex:/^03\d{9}$/'],
+            'guardian.phone' => ['nullable', 'string', 'max:20'],
             'guardian.cnic' => ['nullable', 'string', 'max:20', 'regex:/^\d{5}-\d{7}-\d{1}$/'],
             'guardian.address' => ['nullable', 'string', 'max:255'],
             'guardian.is_emergency' => ['nullable', 'boolean'],
@@ -414,13 +415,16 @@ class PatientController extends Controller
         return substr($digits, 0, 5).'-'.substr($digits, 5, 7).'-'.substr($digits, 12, 1);
     }
 
-    private function normalizePhone(?string $phone): ?string
+    private function normalizePhone(?string $phone, string $field = 'phone'): ?string
     {
-        if ($phone === null || trim($phone) === '') {
-            return null;
+        $normalized = PkPhone::normalize($phone);
+        if ($normalized === false) {
+            throw ValidationException::withMessages([
+                $field => ['Phone must start with 03 or +92.'],
+            ]);
         }
 
-        return preg_replace('/\D+/', '', $phone);
+        return $normalized;
     }
 
     private function digits(?string $value): string

@@ -33,7 +33,11 @@ class RoleUserSeeder extends Seeder
             'admin' => $adminModules,
             'receptionist' => ['reception', 'registration', 'admission', 'patients', 'beds'],
             'gatekeeper' => ['visitors'],
-            'doctor' => [
+            'consultant-psychiatrist' => [
+                'patients', 'medical-records', 'doctors', 'nursing',
+                'treatment', 'discharge',
+            ],
+            'medical-officer' => [
                 'patients', 'medical-records', 'doctors', 'nursing',
                 'treatment', 'discharge',
             ],
@@ -42,18 +46,27 @@ class RoleUserSeeder extends Seeder
             'dispenser' => ['pharmacy'],
             'inventory-manager' => ['inventory'],
             'cook' => ['inventory'],
+            'clinical-psychologist' => ['psychology', 'patients'],
+            'maulana' => ['spiritual', 'patients'],
+            'security-guard' => [],
+            'cleaner' => [],
         ];
 
         $roleNames = [
             'admin' => 'Admin',
             'receptionist' => 'Receptionist',
             'gatekeeper' => 'Gatekeeper',
-            'doctor' => 'Doctor',
+            'consultant-psychiatrist' => 'Consultant Psychiatrist',
+            'medical-officer' => 'Medical Officer',
             'nurse' => 'Nurse',
             'finance' => 'Finance',
             'dispenser' => 'Dispenser',
             'inventory-manager' => 'Inventory Manager',
             'cook' => 'Cook',
+            'clinical-psychologist' => 'Clinical Psychologist / Manager',
+            'maulana' => 'Maulana / Islamic Scholar',
+            'security-guard' => 'Security Guard',
+            'cleaner' => 'Cleaner',
         ];
 
         Role::query()->where('slug', 'pharmacist')->update([
@@ -70,6 +83,14 @@ class RoleUserSeeder extends Seeder
                     'modules' => $roleModules[$slug] ?? [],
                 ]
             );
+        }
+
+        // Legacy generic "doctor" → Consultant Psychiatrist
+        $legacyDoctor = Role::query()->where('slug', 'doctor')->first();
+        $psychRoleId = Role::query()->where('slug', 'consultant-psychiatrist')->value('id');
+        if ($legacyDoctor && $psychRoleId) {
+            User::query()->where('role_id', $legacyDoctor->id)->update(['role_id' => $psychRoleId]);
+            $legacyDoctor->delete();
         }
 
         Role::query()
@@ -102,12 +123,20 @@ class RoleUserSeeder extends Seeder
                 'phone' => '03001110003',
             ],
             [
-                'email' => 'doctor@jadeed.local',
-                'staff_code' => 'DOC-0001',
+                'email' => 'psychiatrist@jadeed.local',
+                'staff_code' => 'CPS-0001',
                 'name' => 'Dr. Kamran Siddiqui',
-                'password' => 'Doctor@123',
-                'role' => 'doctor',
+                'password' => 'Psychiatrist@123',
+                'role' => 'consultant-psychiatrist',
                 'phone' => '03001110004',
+            ],
+            [
+                'email' => 'mo@jadeed.local',
+                'staff_code' => 'MO-0001',
+                'name' => 'Dr. Sara Malik',
+                'password' => 'MO@123',
+                'role' => 'medical-officer',
+                'phone' => '03001110014',
             ],
             [
                 'email' => 'nurse@jadeed.local',
@@ -149,11 +178,31 @@ class RoleUserSeeder extends Seeder
                 'role' => 'cook',
                 'phone' => '03001110009',
             ],
+            [
+                'email' => 'psychologist@jadeed.local',
+                'staff_code' => 'CPM-0001',
+                'name' => 'Ayesha Maheen',
+                'password' => 'Psychologist@123',
+                'role' => 'clinical-psychologist',
+                'phone' => '03001110010',
+            ],
+            [
+                'email' => 'maulana@jadeed.local',
+                'staff_code' => 'MAU-0001',
+                'name' => 'Syed Ahmad Raza',
+                'password' => 'Maulana@123',
+                'role' => 'maulana',
+                'phone' => '03001110011',
+            ],
         ];
 
         User::query()
             ->where('email', 'pharmacist@jadeed.local')
             ->update(['email' => 'dispenser@jadeed.local']);
+
+        User::query()
+            ->where('email', 'doctor@jadeed.local')
+            ->update(['email' => 'psychiatrist@jadeed.local']);
 
         $keepEmails = [];
         foreach ($staff as $row) {

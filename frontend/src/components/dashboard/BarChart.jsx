@@ -112,9 +112,11 @@ export default function BarChart({
     })
   }
 
+  const scrollable = !isLine && !isCompare && series.length > 5
+
   useEffect(() => {
     const el = scrollerRef.current
-    if (!el || isLine || isCompare) return undefined
+    if (!el || !scrollable) return undefined
 
     const onWheel = (e) => {
       if (el.scrollWidth <= el.clientWidth) return
@@ -126,34 +128,45 @@ export default function BarChart({
 
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [series.length, isLine, isCompare])
+  }, [scrollable, series.length])
 
   useEffect(() => {
     const el = scrollerRef.current
-    if (!el || series.length <= 8 || isLine || isCompare) return
+    if (!el || !scrollable) return
 
     const now = new Date()
     const month = new Intl.DateTimeFormat('en', { month: 'short' }).format(now)
     const year = String(now.getFullYear())
-    let currentMonthIndex = -1
+    const day = String(now.getDate())
+    let focusIndex = -1
 
     series.forEach((item, index) => {
-      const label = String(item.label || '')
-      if (new RegExp(`(^|\\s)${month}(\\s|$)`, 'i').test(label) &&
-        (!/\b\d{4}\b/.test(label) || label.includes(year))) {
-        currentMonthIndex = index
+      const label = String(item.label || '').trim()
+      // Daily labels like "24 Nov"
+      if (new RegExp(`^${day}\\s+${month}$`, 'i').test(label)) {
+        focusIndex = index
+        return
+      }
+      // Monthly labels like "Nov 2026"
+      if (
+        focusIndex < 0
+        && new RegExp(`(^|\\s)${month}(\\s|$)`, 'i').test(label)
+        && (!/\b\d{4}\b/.test(label) || label.includes(year))
+      ) {
+        focusIndex = index
       }
     })
 
-    if (currentMonthIndex < 0) return
-    const currentMonthBar = el.children[currentMonthIndex]
-    if (!(currentMonthBar instanceof HTMLElement)) return
+    if (focusIndex < 0) focusIndex = series.length - 1
+    const focusBar = el.children[focusIndex]
+    if (!(focusBar instanceof HTMLElement)) return
 
+    // Keep current day/month in view; user can still scroll left for older bars.
     el.scrollLeft = Math.max(
       0,
-      currentMonthBar.offsetLeft + currentMonthBar.offsetWidth - el.clientWidth
+      focusBar.offsetLeft + focusBar.offsetWidth - el.clientWidth
     )
-  }, [series, isLine, isCompare])
+  }, [series, scrollable])
 
   useEffect(() => {
     hideFloatTip()
@@ -454,7 +467,7 @@ export default function BarChart({
         </div>
       ) : (
         <div
-          className={`bar-chart${series.length <= 8 ? ' is-fill' : ' is-scroll'}`}
+          className={`bar-chart${scrollable ? ' is-scroll' : ' is-fill'}`}
           ref={scrollerRef}
           role="img"
           aria-label={title}

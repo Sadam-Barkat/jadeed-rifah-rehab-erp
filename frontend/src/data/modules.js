@@ -2,13 +2,25 @@ export const ROLES = [
   'Admin',
   'Receptionist',
   'Gatekeeper',
-  'Doctor',
+  'Consultant Psychiatrist',
+  'Medical Officer',
   'Nurse',
   'Finance',
   'Dispenser',
   'Inventory Manager',
   'Cook',
+  'Clinical Psychologist / Manager',
+  'Maulana / Islamic Scholar',
+  'Security Guard',
+  'Cleaner',
 ]
+
+/** Staff types with attendance only (no app login). */
+export const ATTENDANCE_ONLY_ROLE_SLUGS = ['security-guard', 'cleaner']
+
+export function isAttendanceOnlyRole(slug) {
+  return ATTENDANCE_ONLY_ROLE_SLUGS.includes(String(slug || ''))
+}
 
 /** Admin sidebar only — overview tabs + management (not operational CRUD). */
 export const ADMIN_NAV = [
@@ -34,6 +46,8 @@ export const MODULES = [
   { id: 'medical-records', name: 'Medical Records', path: '/app/medical-records', group: 'Patient Care' },
   { id: 'doctors', name: 'Doctor Rounds', path: '/app/doctors', group: 'Patient Care' },
   { id: 'nursing', name: 'Nursing', path: '/app/nursing', group: 'Patient Care' },
+  { id: 'psychology', name: 'Psychology', path: '/app/psychology', group: 'Patient Care' },
+  { id: 'spiritual', name: 'Spiritual guidance', path: '/app/maulana', group: 'Patient Care' },
   { id: 'treatment', name: 'Treatment', path: '/app/treatment', group: 'Patient Care' },
   { id: 'discharge', name: 'Discharge', path: '/app/discharge', group: 'Patient Care' },
   { id: 'pharmacy', name: 'Pharmacy', path: '/app/pharmacy', group: 'Clinical' },

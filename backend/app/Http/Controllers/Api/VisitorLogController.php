@@ -7,6 +7,7 @@ use App\Models\Admission;
 use App\Models\Patient;
 use App\Models\VisitorLog;
 use App\Services\GatekeeperVisitorAutoCheckout;
+use App\Support\PkPhone;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -136,7 +137,7 @@ class VisitorLogController extends Controller
             'visitor_name' => ['required', 'string', 'max:150'],
             'party_size' => ['required', 'integer', 'min:1', 'max:20'],
             'relation' => ['nullable', Rule::in(['relative', 'friend', 'other'])],
-            'phone' => ['nullable', 'string', 'max:30'],
+            'phone' => ['nullable', 'string', 'max:20'],
             'cnic' => ['required', 'string', 'max:20'],
             'purpose' => ['nullable', 'string', 'max:255'],
             'check_in_at' => ['nullable', 'date'],
@@ -148,6 +149,11 @@ class VisitorLogController extends Controller
         $cnicKey = $this->normalizeCnic($cnic);
         if ($cnicKey === '') {
             return response()->json(['message' => 'CNIC is required.'], 422);
+        }
+
+        $phone = PkPhone::normalize($data['phone'] ?? null);
+        if ($phone === false) {
+            return response()->json(['message' => 'Phone must start with 03 or +92.'], 422);
         }
 
         $admission = null;
@@ -179,7 +185,7 @@ class VisitorLogController extends Controller
             'visitor_name' => trim($data['visitor_name']),
             'party_size' => max(1, (int) ($data['party_size'] ?? 1)),
             'relation' => $data['relation'] ?? null,
-            'phone' => $data['phone'] ?? null,
+            'phone' => $phone,
             'cnic' => $cnic,
             'purpose' => $data['purpose'] ?? null,
             'check_in_at' => $data['check_in_at'] ?? now(),

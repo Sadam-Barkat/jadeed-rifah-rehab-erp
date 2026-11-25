@@ -36,10 +36,23 @@ class DoctorRoundController extends Controller
             $query->where('status', $status);
         }
 
+        if ($date = trim((string) $request->get('date', ''))) {
+            $query->whereDate('round_at', $date);
+        } else {
+            if ($year = $request->integer('year')) {
+                $query->whereYear('round_at', $year);
+            }
+            if ($month = $request->integer('month')) {
+                $query->whereMonth('round_at', $month);
+            }
+        }
+
         if ($search = trim((string) $request->get('search', ''))) {
             $query->where(function ($q) use ($search) {
                 $q->where('round_code', 'like', "%{$search}%")
                     ->orWhere('findings', 'like', "%{$search}%")
+                    ->orWhere('orders', 'like', "%{$search}%")
+                    ->orWhere('vitals_summary', 'like', "%{$search}%")
                     ->orWhereHas('patient', function ($pq) use ($search) {
                         $pq->where('patient_code', 'like', "%{$search}%")
                             ->orWhere('first_name', 'like', "%{$search}%")
@@ -54,6 +67,17 @@ class DoctorRoundController extends Controller
 
         $paginator = $query->paginate($perPage);
 
+        $availableYears = DoctorRound::query()
+            ->selectRaw('YEAR(round_at) as y')
+            ->whereNotNull('round_at')
+            ->distinct()
+            ->orderByDesc('y')
+            ->pluck('y')
+            ->filter()
+            ->map(fn ($y) => (int) $y)
+            ->values()
+            ->all();
+
         return response()->json([
             'data' => collect($paginator->items())->map(fn (DoctorRound $r) => $this->payload($r)),
             'meta' => [
@@ -61,6 +85,7 @@ class DoctorRoundController extends Controller
                 'last_page' => $paginator->lastPage(),
                 'per_page' => $paginator->perPage(),
                 'total' => $paginator->total(),
+                'available_years' => $availableYears,
             ],
         ]);
     }

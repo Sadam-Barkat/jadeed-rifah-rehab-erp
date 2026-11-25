@@ -20,12 +20,14 @@ use App\Http\Controllers\Api\MedicalRecordController;
 use App\Http\Controllers\Api\MedicineController;
 use App\Http\Controllers\Api\MedicineDispenseController;
 use App\Http\Controllers\Api\MedicineMovementController;
+use App\Http\Controllers\Api\MaulanaSessionController;
 use App\Http\Controllers\Api\MedicinePrescriptionController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\NursingNoteController;
 use App\Http\Controllers\Api\PatientController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\PettyExpenseController;
+use App\Http\Controllers\Api\PsychologySessionController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\SettingController;
 use App\Http\Controllers\Api\TreatmentPlanController;
@@ -76,9 +78,23 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/beds/{bed}/status', [BedController::class, 'updateStatus']);
     });
 
-    Route::middleware('module:admission,patients,medical-records,nursing,treatment,discharge,pharmacy,billing,visitors,doctors')->group(function () {
+    Route::middleware('module:admission,patients,medical-records,nursing,treatment,discharge,pharmacy,billing,visitors,doctors,psychology,spiritual')->group(function () {
         Route::get('/admissions', [AdmissionController::class, 'index']);
         Route::get('/admissions/{admission}', [AdmissionController::class, 'show']);
+    });
+
+    Route::middleware('module:psychology,patients')->group(function () {
+        Route::get('/psychology-sessions', [PsychologySessionController::class, 'index']);
+        Route::post('/psychology-sessions', [PsychologySessionController::class, 'store']);
+        Route::post('/psychology-sessions/mark-done', [PsychologySessionController::class, 'markDone']);
+        Route::get('/psychology-sessions/{psychologySession}', [PsychologySessionController::class, 'show']);
+    });
+
+    Route::middleware('module:spiritual,patients')->group(function () {
+        Route::get('/maulana-sessions', [MaulanaSessionController::class, 'index']);
+        Route::post('/maulana-sessions', [MaulanaSessionController::class, 'store']);
+        Route::post('/maulana-sessions/mark-done', [MaulanaSessionController::class, 'markDone']);
+        Route::get('/maulana-sessions/{maulanaSession}', [MaulanaSessionController::class, 'show']);
     });
 
     Route::middleware('module:admission,patients')->group(function () {
@@ -150,6 +166,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/medicine-movements', [MedicineMovementController::class, 'store']);
         Route::post('/medicine-dispenses', [MedicineDispenseController::class, 'store']);
         Route::post('/medicine-prescriptions/{medicinePrescription}/dispense', [MedicinePrescriptionController::class, 'dispense']);
+    });
+
+    Route::middleware('module:nursing')->group(function () {
+        Route::post('/medicine-prescriptions/{medicinePrescription}/administer', [MedicinePrescriptionController::class, 'administer']);
     });
 
     Route::middleware('module:billing,accounts')->group(function () {

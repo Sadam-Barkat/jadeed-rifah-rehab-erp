@@ -787,31 +787,38 @@ export default function InventoryPage() {
               <div className="panel-head no-print">
                 <h3>Kitchen use log</h3>
               </div>
-              <div className="list-toolbar no-print cook-log-toolbar">
+              <div className="list-toolbar no-print kitchen-log-toolbar">
                 <input
-                  className="ui-input cook-log-search"
+                  className="ui-input kitchen-log-search"
                   type="search"
                   value={cookSearch}
                   onChange={(event) => setCookSearch(event.target.value)}
                   placeholder="Search item or cook"
                   aria-label="Search kitchen use log"
                 />
-                <DateRangeFilter
-                  value={cookFilter}
-                  onApply={setCookFilter}
-                  loading={cookLogLoading}
-                  showStaff
-                  staffOptions={cooks}
-                  staffLabel="Cook"
-                />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => window.print()}
-                  disabled={loading || cookLogLoading}
-                >
-                  Print
-                </Button>
+                <div className="kitchen-log-filter-row">
+                  <DateRangeFilter
+                    value={cookFilter}
+                    onApply={setCookFilter}
+                    loading={cookLogLoading}
+                    showStaff
+                    staffOptions={cooks}
+                    staffLabel="Cook"
+                  />
+                  <div className="date-filter-field date-filter-action-field kitchen-log-print-field">
+                    <span>&nbsp;</span>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="kitchen-log-print-btn"
+                      onClick={() => window.print()}
+                      disabled={loading || cookLogLoading}
+                    >
+                      Print
+                    </Button>
+                  </div>
+                </div>
               </div>
               {cookLogLoading ? (
                 <SkeletonCards count={2} />

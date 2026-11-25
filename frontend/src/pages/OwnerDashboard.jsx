@@ -7,7 +7,7 @@ import { defaultRange } from '../components/dashboard/DateRangeFilter'
 import './pages.css'
 
 export default function OwnerDashboard() {
-  const [filter, setFilter] = useState(defaultRange)
+  const [filter, setFilter] = useState(() => defaultRange())
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState(null)
 

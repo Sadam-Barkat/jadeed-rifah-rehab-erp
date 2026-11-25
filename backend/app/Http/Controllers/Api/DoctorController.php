@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Doctor;
+use App\Support\PkPhone;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -48,19 +49,24 @@ class DoctorController extends Controller
             'full_name' => ['required', 'string', 'max:150'],
             'specialization' => ['nullable', 'string', 'max:150'],
             'license_no' => ['nullable', 'string', 'max:64'],
-            'phone' => ['nullable', 'string', 'max:32'],
+            'phone' => ['nullable', 'string', 'max:20'],
             'email' => ['nullable', 'email', 'max:150'],
             'status' => ['nullable', Rule::in(['active', 'inactive'])],
             'user_id' => ['nullable', 'exists:users,id'],
             'notes' => ['nullable', 'string'],
         ]);
 
+        $phone = PkPhone::normalize($data['phone'] ?? null);
+        if ($phone === false) {
+            return response()->json(['message' => 'Phone must start with 03 or +92.'], 422);
+        }
+
         $doctor = Doctor::query()->create([
             'doctor_code' => $this->nextCode(),
             'full_name' => $data['full_name'],
             'specialization' => $data['specialization'] ?? null,
             'license_no' => $data['license_no'] ?? null,
-            'phone' => $data['phone'] ?? null,
+            'phone' => $phone,
             'email' => $data['email'] ?? null,
             'status' => $data['status'] ?? 'active',
             'user_id' => $data['user_id'] ?? null,
@@ -87,12 +93,20 @@ class DoctorController extends Controller
             'full_name' => ['sometimes', 'required', 'string', 'max:150'],
             'specialization' => ['nullable', 'string', 'max:150'],
             'license_no' => ['nullable', 'string', 'max:64'],
-            'phone' => ['nullable', 'string', 'max:32'],
+            'phone' => ['nullable', 'string', 'max:20'],
             'email' => ['nullable', 'email', 'max:150'],
             'status' => ['nullable', Rule::in(['active', 'inactive'])],
             'user_id' => ['nullable', 'exists:users,id'],
             'notes' => ['nullable', 'string'],
         ]);
+
+        if (array_key_exists('phone', $data)) {
+            $phone = PkPhone::normalize($data['phone'] ?? null);
+            if ($phone === false) {
+                return response()->json(['message' => 'Phone must start with 03 or +92.'], 422);
+            }
+            $data['phone'] = $phone;
+        }
 
         $doctor->update($data);
         $doctor->load(['creator']);

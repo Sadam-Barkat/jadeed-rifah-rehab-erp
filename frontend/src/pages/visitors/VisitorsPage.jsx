@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
-import { formatPkPhone, isValidPkPhone } from '../../lib/pk'
+import { formatPkPhone, isValidPkPhone, normalizePkPhone, PK_PHONE_HINT } from '../../lib/pk'
 import { useAuth } from '../../context/AuthContext'
 import Button from '../../components/ui/Button'
 import ImageCaptureField from '../../components/ui/ImageCaptureField'
@@ -242,7 +242,7 @@ export default function VisitorsPage() {
       return
     }
     if (form.phone.trim() && !isValidPkPhone(form.phone)) {
-      toast.error('Enter a valid phone (11 digits)')
+      toast.error(PK_PHONE_HINT)
       return
     }
     setSaving(true)
@@ -251,7 +251,7 @@ export default function VisitorsPage() {
         visitor_name: form.visitor_name.trim(),
         party_size: Number(form.party_size) || 1,
         cnic: form.cnic.trim(),
-        phone: form.phone.trim() || null,
+        phone: normalizePkPhone(form.phone) || null,
       }
       if (isGate && form.patient_id) body.patient_id = Number(form.patient_id)
       if (!isGate && form.admission_id) body.admission_id = Number(form.admission_id)
@@ -444,8 +444,9 @@ export default function VisitorsPage() {
               <input
                 id="phone"
                 className="ui-input"
-                inputMode="numeric"
-                maxLength={11}
+                inputMode="tel"
+                maxLength={13}
+                placeholder="03… or +92…"
                 value={form.phone}
                 onChange={(e) => setField('phone', formatPkPhone(e.target.value))}
               />

@@ -18,7 +18,7 @@ Update this file whenever a security item is implemented, partially applied, or 
 | 8 | Mass assignment protection | Done | User/Role fillable | Explicit fields only |
 | 9 | Upload security (type/size whitelist) | In Progress | All image uploads via `SecureUpload` | jpg/png/webp (+pdf for bills) max **40 MB**; errors say MB not KB |
 | 10 | HTTPS + secure cookies/tokens | Later | — | Production deploy |
-| 11 | Session timeout + login rate limit | Done | AuthContext + facility settings | Idle timeout enforced client-side; login throttle:10,1 |
+| 11 | Session timeout + login rate limit | Done | AuthContext + facility settings + `RoleLoginGuard` | Idle timeout calls logout (releases lock); login throttle:10,1; nurse/dispenser/cook single concurrent login |
 | 12 | Careful token/sensitive storage on client | Done | sessionStorage token (per-tab) | No shared-tab role takeover; no clinical notes stored |
 | 13 | Safe production errors | Done | `bootstrap/app.php` | API hides stack when `APP_DEBUG=false` |
 | 14 | No hard-delete of sensitive records | In Progress | patients archive + account/petty void | Patients soft-archive when admitted; void ledger; finance cannot void petty/facility (admin only) |
@@ -46,4 +46,4 @@ Update this file whenever a security item is implemented, partially applied, or 
 - Must remaining: 0 Todo (3 In Progress: RBAC polish, hard-delete, upload whitelist)
 - Should remaining: 2
 - Later: 4
-- Last updated: 2026-11-19 (uploads max 40 MB + MB errors)
+- Last updated: 2026-11-24 (nurse/dispenser exclusive login lock)

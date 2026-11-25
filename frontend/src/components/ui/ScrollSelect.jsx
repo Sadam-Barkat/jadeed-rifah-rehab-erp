@@ -14,6 +14,7 @@ export default function ScrollSelect({
   searchable = false,
   allowCreate = false,
   createLabel = 'Add',
+  preferDown = false,
 }) {
   const rootRef = useRef(null)
   const triggerRef = useRef(null)
@@ -40,7 +41,7 @@ export default function ScrollSelect({
     const rect = triggerRef.current?.getBoundingClientRect()
     if (!rect) return
 
-    const boundEl = triggerRef.current?.closest('.ui-modal, .panel, form')
+    const boundEl = preferDown ? null : triggerRef.current?.closest('.ui-modal, .panel, form')
     const box = boundEl?.getBoundingClientRect()
     const pad = 8
     const gap = 4
@@ -52,9 +53,9 @@ export default function ScrollSelect({
 
     const spaceBelow = Math.max(0, boundBottom - rect.bottom - gap)
     const spaceAbove = Math.max(0, rect.top - boundTop - gap)
-    const openUp = spaceBelow < 140 && spaceAbove > spaceBelow
+    const openUp = preferDown ? false : (spaceBelow < 140 && spaceAbove > spaceBelow)
     const available = openUp ? spaceAbove : spaceBelow
-    const maxHeight = Math.max(96, Math.min(searchable ? 260 : 220, available))
+    const maxHeight = Math.max(96, Math.min(searchable ? 280 : 240, available))
     const width = Math.min(Math.max(rect.width, 160), Math.max(120, boundRight - boundLeft))
     const left = Math.min(Math.max(boundLeft, rect.left), Math.max(boundLeft, boundRight - width))
 
@@ -74,7 +75,7 @@ export default function ScrollSelect({
     if (!open) return undefined
     placeMenu()
     return undefined
-  }, [open, options.length, filteredOptions.length, query])
+  }, [open, options.length, filteredOptions.length, query, preferDown])
 
   useEffect(() => {
     if (!open) return undefined

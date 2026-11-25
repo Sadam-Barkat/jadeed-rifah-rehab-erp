@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
+import { useAuth } from '../../context/AuthContext'
+import { isClinicalDoctor } from '../../lib/clinicalDoctors'
 import Button from '../../components/ui/Button'
 import { SkeletonCards } from '../../components/ui/Skeleton'
 import '../pages.css'
@@ -21,12 +23,26 @@ function formatWhen(value) {
 
 export default function MedicineSlipPage() {
   const { id } = useParams()
+  const { user } = useAuth()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const autoprint = searchParams.get('autoprint') === '1'
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [rx, setRx] = useState(null)
   const printedRef = useRef(false)
+
+  const isNurse = user?.role_slug === 'nurse'
+  const isDispenser = user?.role_slug === 'dispenser' || user?.role_slug === 'pharmacist'
+  const isDoctor = isClinicalDoctor(user)
+  const canAdminister = isNurse && rx?.status === 'dispensed'
+  const backTo = isNurse
+    ? (rx?.status === 'administered' ? '/app/nursing?tab=given' : '/app/nursing?tab=slips')
+    : isDispenser
+      ? '/app/pharmacy?tab=prescriptions'
+      : isDoctor
+        ? '/app/doctors?tab=prescribe'
+        : '/app'
 
   useEffect(() => {
     let cancelled = false
@@ -57,18 +73,37 @@ export default function MedicineSlipPage() {
     return () => clearTimeout(t)
   }, [autoprint, loading, rx, searchParams, setSearchParams])
 
+  async function markGiven() {
+    if (!rx?.id) return
+    setSaving(true)
+    try {
+      const data = await api(`/medicine-prescriptions/${rx.id}/administer`, { method: 'POST' })
+      setRx(data.data)
+      toast.success('Medicine marked as given')
+    } catch (err) {
+      toast.error(err.message || 'Failed to mark as given')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div className="page print-page medicine-slip-page">
       <div className="page-header no-print">
         <div>
-          <p className="eyebrow">Medicine slip</p>
+          <p className="eyebrow">Digital medicine slip</p>
           <h2>{rx?.prescription_code || 'Medicine slip'}</h2>
         </div>
         <div className="page-actions">
+          {canAdminister ? (
+            <Button type="button" onClick={markGiven} disabled={saving}>
+              {saving ? 'Saving…' : 'Mark as given'}
+            </Button>
+          ) : null}
           <Button type="button" variant="secondary" onClick={() => window.print()} disabled={loading || !rx}>
             Print
           </Button>
-          <Button type="button" variant="ghost" onClick={() => navigate('/app/pharmacy?tab=prescriptions')}>
+          <Button type="button" variant="back" onClick={() => navigate(backTo)}>
             Back
           </Button>
         </div>
@@ -80,6 +115,13 @@ export default function MedicineSlipPage() {
         <p className="panel-copy">Medicine slip not found.</p>
       ) : (
         <section className="panel print-stock-panel">
+          {isDoctor && rx.status === 'administered' ? (
+            <p className="panel-copy no-print" style={{ marginBottom: 12 }}>
+              Medicine has been given
+              {rx.administered_by ? ` by ${rx.administered_by}` : ''}
+              {rx.administered_at ? ` · ${formatWhen(rx.administered_at)}` : ''}.
+            </p>
+          ) : null}
           <header className="print-dash-head">
             <p className="print-dash-org">Jadeed Rifah Rehab &amp; Care Center</p>
             <h2>Medicine slip</h2>
@@ -123,6 +165,22 @@ export default function MedicineSlipPage() {
                 <dt>Dispensed</dt>
                 <dd>{formatWhen(rx.dispensed_at)}</dd>
               </div>
+              <div className="rx-meta-row">
+                <dt>Status</dt>
+                <dd>
+                  {rx.status === 'administered'
+                    ? `Given${rx.administered_by ? ` · ${rx.administered_by}` : ''}`
+                    : rx.status === 'dispensed'
+                      ? 'Ready for nurse'
+                      : rx.status}
+                </dd>
+              </div>
+              {rx.administered_at ? (
+                <div className="rx-meta-row">
+                  <dt>Given at</dt>
+                  <dd>{formatWhen(rx.administered_at)}</dd>
+                </div>
+              ) : null}
             </dl>
 
             <table className="data-table" style={{ marginTop: 12, minWidth: 0 }}>

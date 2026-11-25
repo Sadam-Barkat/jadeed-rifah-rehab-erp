@@ -136,6 +136,15 @@ export function defaultRange() {
   return resolveFilter({ mode: 'month', year, month, minYear: year })
 }
 
+/** Plain year/month for list toolbars (month = "1".."12"). */
+export function currentYearMonthPlain() {
+  const now = new Date()
+  return {
+    year: String(now.getFullYear()),
+    month: String(now.getMonth() + 1),
+  }
+}
+
 export default function DateRangeFilter({
   value,
   years = [],

@@ -18,13 +18,17 @@ class NursingNote extends Model
         'bp_systolic',
         'bp_diastolic',
         'spo2',
+        'respiratory_rate',
         'weight_kg',
+        'blood_sugar_mg_dl',
+        'pain_score',
         'mood',
         'sleep_quality',
         'appetite',
         'observations',
         'interventions',
         'status',
+        'condition',
         'created_by',
     ];
 
@@ -37,7 +41,10 @@ class NursingNote extends Model
             'bp_systolic' => 'integer',
             'bp_diastolic' => 'integer',
             'spo2' => 'integer',
+            'respiratory_rate' => 'integer',
             'weight_kg' => 'float',
+            'blood_sugar_mg_dl' => 'integer',
+            'pain_score' => 'integer',
         ];
     }
 

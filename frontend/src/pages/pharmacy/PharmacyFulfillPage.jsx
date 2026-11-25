@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
@@ -88,15 +88,27 @@ export default function PharmacyFulfillPage() {
   const [lines, setLines] = useState([emptyLine()])
   const [activeKey, setActiveKey] = useState(null)
   const [draftReady, setDraftReady] = useState(false)
-  const [dirty, setDirty] = useState(false)
   const draftKey = `fulfill_${id}`
+  const linesRef = useRef(lines)
+  const rxRef = useRef(rx)
+  const skipDraftRef = useRef(false)
 
-  function persistDraft(nextLines = lines) {
-    if (!rx) return
+  useEffect(() => {
+    linesRef.current = lines
+  }, [lines])
+
+  useEffect(() => {
+    rxRef.current = rx
+  }, [rx])
+
+  function persistDraft(nextLines = linesRef.current, nextRx = rxRef.current) {
+    if (skipDraftRef.current) return
+    if (!nextRx || nextRx.status !== 'pending') return
+    if (!Array.isArray(nextLines) || !nextLines.length) return
     saveDraft(draftKey, {
       lines: nextLines,
-      prescription_code: rx.prescription_code,
-      patient_name: rx.patient?.full_name || '',
+      prescription_code: nextRx.prescription_code,
+      patient_name: nextRx.patient?.full_name || '',
     })
   }
 
@@ -106,7 +118,7 @@ export default function PharmacyFulfillPage() {
     async function load() {
       setLoading(true)
       setDraftReady(false)
-      setDirty(false)
+      skipDraftRef.current = false
       try {
         const res = await api(`/medicine-prescriptions/${id}`)
         if (cancelled) return
@@ -114,24 +126,40 @@ export default function PharmacyFulfillPage() {
         setRx(data)
         if (data.status !== 'pending') {
           clearDraft(draftKey)
+          skipDraftRef.current = true
           toast.error('This prescription is already done')
           navigate('/app/pharmacy?tab=prescriptions')
           return
         }
 
-        const draft = openDraft ? loadDraft(draftKey) : null
-        if (openDraft && draft?.lines?.length) {
-          setLines(draft.lines)
-          setActiveKey(draft.lines[0]?.key || null)
+        const existingDraft = loadDraft(draftKey)
+        if (openDraft && existingDraft?.lines?.length) {
+          setLines(existingDraft.lines)
+          setActiveKey(existingDraft.lines[0]?.key || null)
           toast.message('Draft opened')
+        } else if (existingDraft?.lines?.length && !openDraft) {
+          // Returning to a previously opened Rx — keep draft work.
+          setLines(existingDraft.lines)
+          setActiveKey(existingDraft.lines[0]?.key || null)
         } else if (data.items?.length) {
           const mapped = data.items.map(mapRxItem)
           setLines(mapped)
           setActiveKey(mapped[0]?.key || null)
+          // Auto-filled lines become a draft immediately (back / power loss safe).
+          saveDraft(draftKey, {
+            lines: mapped,
+            prescription_code: data.prescription_code,
+            patient_name: data.patient?.full_name || '',
+          })
         } else {
           const first = emptyLine()
           setLines([first])
           setActiveKey(first.key)
+          saveDraft(draftKey, {
+            lines: [first],
+            prescription_code: data.prescription_code,
+            patient_name: data.patient?.full_name || '',
+          })
         }
       } catch (err) {
         toast.error(err.message || 'Failed to load prescription')
@@ -149,32 +177,45 @@ export default function PharmacyFulfillPage() {
     }
   }, [canUsePharmacy, id, openDraft])
 
+  // Debounced autosave while editing.
   useEffect(() => {
-    if (!rx || loading || !draftReady || !dirty) return undefined
+    if (!rx || loading || !draftReady) return undefined
     const t = setTimeout(() => {
-      persistDraft(lines)
-    }, 400)
+      persistDraft(lines, rx)
+    }, 300)
     return () => clearTimeout(t)
-  }, [lines, rx, loading, draftReady, dirty, draftKey])
+  }, [lines, rx, loading, draftReady, draftKey])
+
+  // Flush draft on tab close / refresh / navigate away.
+  useEffect(() => {
+    if (!draftReady) return undefined
+    function onLeave() {
+      persistDraft()
+    }
+    window.addEventListener('pagehide', onLeave)
+    window.addEventListener('beforeunload', onLeave)
+    return () => {
+      persistDraft()
+      window.removeEventListener('pagehide', onLeave)
+      window.removeEventListener('beforeunload', onLeave)
+    }
+  }, [draftReady, draftKey])
 
   if (!canUsePharmacy) {
     return <Navigate to={homePathForUser(user)} replace />
   }
 
   function updateLine(key, patch) {
-    setDirty(true)
     setLines((prev) => prev.map((row) => (row.key === key ? { ...row, ...patch } : row)))
   }
 
   function addLine() {
-    setDirty(true)
     const row = emptyLine()
-    setLines((prev) => [...prev, row])
+    setLines((prev) => [row, ...prev])
     setActiveKey(row.key)
   }
 
   function removeLine(key) {
-    setDirty(true)
     setLines((prev) => {
       if (prev.length <= 1) return prev
       const next = prev.filter((row) => row.key !== key)
@@ -255,8 +296,8 @@ export default function PharmacyFulfillPage() {
         method: 'POST',
         body,
       })
+      skipDraftRef.current = true
       clearDraft(draftKey)
-      setDirty(false)
       toast.success(`${data.data.prescription_code} done · nurse notified`)
       navigate(`/app/medicine-slips/${rx.id}?autoprint=1`)
     } catch (err) {
@@ -267,8 +308,8 @@ export default function PharmacyFulfillPage() {
   }
 
   function handleBack() {
-    if (dirty) persistDraft(lines)
-    navigate(openDraft ? '/app/pharmacy?tab=drafts' : '/app/pharmacy?tab=prescriptions')
+    persistDraft(lines, rx)
+    navigate('/app/pharmacy?tab=drafts')
   }
 
   const activeLine = lines.find((line) => line.key === activeKey) || lines[0]
@@ -405,17 +446,6 @@ export default function PharmacyFulfillPage() {
             </div>
 
             <div className="form-actions" style={{ marginTop: 12 }}>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => {
-                  persistDraft(lines)
-                  setDirty(false)
-                  toast.success('Draft updated')
-                }}
-              >
-                Save draft
-              </Button>
               <Button type="submit" disabled={saving}>
                 {saving ? 'Saving…' : 'Submit & mark done'}
               </Button>

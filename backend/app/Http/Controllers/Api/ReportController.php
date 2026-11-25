@@ -157,6 +157,8 @@ class ReportController extends Controller
                     'receptionist',
                     'gatekeeper',
                     'doctor',
+                    'consultant-psychiatrist',
+                    'medical-officer',
                     'nurse',
                     'finance',
                     'dispenser',
@@ -250,6 +252,8 @@ class ReportController extends Controller
             'receptionist' => $this->receptionistDashboard($from, $to),
             'gatekeeper' => $this->gatekeeperDashboard($from, $to),
             'doctor' => $this->doctorDashboard($from, $to),
+            'consultant-psychiatrist' => $this->doctorDashboard($from, $to),
+            'medical-officer' => $this->doctorDashboard($from, $to),
             'nurse' => $this->nurseDashboard($from, $to),
             'finance' => $this->financeDashboard($from, $to),
             'dispenser' => $this->pharmacistDashboard($from, $to),
@@ -2782,8 +2786,9 @@ class ReportController extends Controller
     }
 
     /**
-     * When filter range ends in the future (e.g. current month → last day),
-     * charts show a rolling last-5-days window ending today.
+     * When filter range ends in the future (e.g. current month → month end),
+     * charts stop at today so future empty days are not drawn. Full history
+     * in-range stays available for horizontal scroll on the frontend.
      *
      * @return array{0: Carbon, 1: Carbon}
      */
@@ -2794,13 +2799,7 @@ class ReportController extends Controller
         $to = $to->copy()->startOfDay();
 
         if ($to->greaterThan($today) && $from->lessThanOrEqualTo($today)) {
-            $chartTo = $today;
-            $chartFrom = $today->copy()->subDays(4);
-            if ($chartFrom->lt($from)) {
-                $chartFrom = $from->copy();
-            }
-
-            return [$chartFrom, $chartTo];
+            return [$from, $today];
         }
 
         return [$from, $to];

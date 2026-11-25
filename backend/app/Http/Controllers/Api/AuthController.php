@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\FacilitySetting;
 use App\Models\User;
+use App\Support\AttendanceOnlyStaff;
 use App\Support\Audit;
+use App\Support\RoleLoginGuard;
 use App\Support\SecureUpload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -37,6 +39,22 @@ class AuthController extends Controller
             ]);
         }
 
+        if (AttendanceOnlyStaff::is($user->role?->slug)) {
+            throw ValidationException::withMessages([
+                'email' => ['This staff record is for attendance only. No app login.'],
+            ]);
+        }
+
+        $guard = RoleLoginGuard::assertCanLogin($user);
+        if (! ($guard['ok'] ?? false)) {
+            return response()->json([
+                'message' => $guard['message'] ?? 'Another staff member is currently logged in for this role.',
+                'locked_by' => $guard['holder']?->name,
+                'role' => RoleLoginGuard::roleLabel($user->role?->slug),
+            ], 409);
+        }
+
+        RoleLoginGuard::claim($user);
         $token = $user->createToken('web')->plainTextToken;
 
         Audit::log(
@@ -176,7 +194,11 @@ class AuthController extends Controller
             userId: $user?->id,
         );
 
-        $user?->currentAccessToken()?->delete();
+        if ($user) {
+            $user->loadMissing('role');
+            RoleLoginGuard::release($user);
+            $user->currentAccessToken()?->delete();
+        }
 
         return response()->json([
             'message' => 'Signed out',
